@@ -118,7 +118,12 @@ set(PRODUCT_SOURCES
     Source/PluginEditor.cpp
     Source/PluginEditor.h
     Source/Params.h
-    Source/State.h)
+    Source/State.h
+    Source/dsp/AlignEngine.h
+    Source/dsp/AnalysisRing.h
+    Source/dsp/Detector.h
+    Source/dsp/Rotate.h
+    Source/dsp/SincDelay.h)
 
 target_sources(Align PRIVATE ${PRODUCT_SOURCES})
 target_include_directories(Align PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}/generated")

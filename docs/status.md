@@ -33,10 +33,36 @@ Newest first; one line each. Everything else keeps moving.
 - none yet.
 
 ## Handoff
-Task: build Align to Tier P from G1. Plan: 1. [x] G1 families and departures 2. [x] G2 numpy prototype, seeded material, 16 checks, renders 3. [ ] G3 harness sidechain bus + measurement scripts + metric table (next) 4. [ ] G4 port 5. [ ] G5 null vs the prototype 6. [ ] G6 validate (the part that runs off a Mac) 7. [ ] G7 documents.
-Working tree: clean. Build: red on purpose - `Source/Params.h` is regenerated for Align's table but `Source/PluginProcessor.cpp` is still the template's (`Params::outGain`, `Params::mix`); the processor is rewritten at G4. Tests: not registered yet (the build has to compile first).
-Open questions for the owner: the "Waiting for Björn" lines above.
-Next command: `cmake --build --preset release` (after G4) / `python3 "sound design/prototype.py" --all --seed 1`
+Task: build Align to Tier P from G1. Plan: 1. [x] G1 families and departures 2. [x] G2 numpy
+prototype, 16 checks, renders 3. [ ] **G4 port - in progress, paused mid-way** 4. [ ] harness
+sidechain bus, `--detect-at`, product metrics 5. [ ] `tools/tests/test_plugin.py` 6. [ ] G3
+measurement scripts and the metric table 7. [ ] G5 null vs the prototype 8. [ ] G6 validate (the
+part that runs off a Mac) 9. [ ] G7 documents.
+
+**Where the port stands.** `Source/dsp/` holds the five modules, each mirroring its prototype
+module: `SincDelay.h`, `Rotate.h`, `AnalysisRing.h` (the decimating lock-free rings),
+`Detector.h` (GCC-PHAT and the Rotate suggestion), `AlignEngine.h` (the audio path, the latency
+and clamp rules, and a latency-compensated click-free bypass, rule 7). `PluginProcessor` is
+rewritten around them: the stereo sidechain aux bus, cached parameter atomics, the detect worker
+thread, the `AsyncUpdater` that writes delay and polarity as one host edit, `applyRotateSuggestion`
+for the Apply button, Track mode, and the correlation meter.
+
+Build: `Align_VST3` compiles clean. `AlignHarness` has **not** been compiled against the new code
+yet - the one attempt failed only because `JuceLibraryCode/JucePluginDefines.h` had not been
+generated, which building the plugin target first fixes; that is the next command. Nothing in the
+port has been run or measured yet, so none of its numbers are in this document. The G2 numbers
+above are the **prototype's**, not the port's.
+
+Still to write before anything can be measured: the harness needs a `--sidechain=<file.wav>` /
+`--sidechain-signal=<spec>` pair for the reference bus (the contract has no sidechain, so this is a
+documented product extension), a `--detect-at=<t>` that sets the Detect parameter like a host and
+then calls `applyPendingDetect()` (a console app runs no message loop), and a `product` object
+carrying the detect result, the suggestion and the readout.
+
+Working tree: clean. Tests: not registered yet (the harness has to link first).
+Open questions for the owner: the "Waiting for Björn" lines above; two of them are decisions
+(Rotate's re-parameterisation, the asymmetric Delay clamp).
+Next command: `cmake --build --preset release -j4` (plugin first, then the harness)
 
 ## Decisions
 - 2026-11-01: **G1 family - estimator.** GCC-PHAT (generalised cross-correlation with the phase
