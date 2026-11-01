@@ -46,7 +46,7 @@ Tier S, gate G0-G2 sketch. Oberli Audio effect, Bone theme, accent Sage #33B679 
 | mode | choice | Mode | Align | Static \| Track | 0 / 1 / 0 |
 | hold | bool | Hold | Align | - | 0 / 1 / 0 |
 | rotate | float | Rotate | Rotate | ° | 0 / 180 / 0 |
-| below | float | Below | Rotate | Hz, centre 150 | 30 / 1000 / 120 |
+| below | float | Below | Rotate | Hz, center 150 | 30 / 1000 / 120 |
 | listen | choice | Listen | Align | Off \| Ref \| Sum | 0 / 2 / 0 |
 | trim | float | Trim | Output | dB, bipolar | -24 / +24 / 0 |
 | detect | bool | Detect | Align | momentary | 0 / 1 / 0 |
@@ -82,7 +82,7 @@ in ──► polarity ──► fractional delay (Window + Delay) ──► all-
 
 ### 4.2 Detect
 - Runs on the last 4 s of both buffers (2 s if the transport has run less), on a background thread, result posted to the message thread, parameters written through begin/perform/end edit so the host records them as one edit.
-- GCC-PHAT over the Window, FFT size the next power of two above 2 x window length at the session rate; parabolic interpolation around the peak; polarity from the peak's sign; confidence = (|peak| - |second peak|) / |peak| in percent, shown and also colour-free in words ("confidence 94 %", "low confidence 38 %: play a louder section").
+- GCC-PHAT over the Window, FFT size the next power of two above 2 x window length at the session rate; parabolic interpolation around the peak; polarity from the peak's sign; confidence = (|peak| - |second peak|) / |peak| in percent, shown and also color-free in words ("confidence 94 %", "low confidence 38 %: play a louder section").
 - Distance is shown next to the time (343 m/s at 20 °C) because that is how an engineer checks plausibility: 79 cm between kick-in and overheads is right, 7.9 m is not.
 - If the sidechain is silent (below -60 dBFS for the whole buffer), Detect does nothing and says "Reference is silent".
 - Rotate suggestion: after applying delay and polarity, Detect takes the aligned pair, low-passes both at 300 Hz and searches Rotate 0-180° in 2° steps and Below over 60, 80, 110, 150 and 200 Hz for the highest low-band correlation; if the gain over the unrotated pair is at least 0.05, the Rotate section shows "Detect suggests 48° below 110 Hz · correlation below 150 Hz 0.62 → 0.88" and an Apply button; otherwise it shows "No rotation needed". Apply writes both parameters through begin/perform/end edit as one host edit; the suggestion stays visible until the next Detect so the user can compare by ear with Rotate at 0 and at the suggested value.
