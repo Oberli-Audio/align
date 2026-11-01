@@ -1,0 +1,109 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build release (VST3, Standalone, harness)",
+      "type": "shell",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "command": "cmake --preset release && cmake --build --preset release",
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "Build debug",
+      "type": "shell",
+      "group": "build",
+      "command": "cmake --preset debug && cmake --build --preset debug",
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "Build ASan + UBSan",
+      "type": "shell",
+      "group": "build",
+      "command": "cmake --preset asan && cmake --build --preset asan",
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "Tests: fast (< 60 s)",
+      "type": "shell",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "command": "ctest --preset fast --output-on-failure",
+      "dependsOn": "Build release (VST3, Standalone, harness)"
+    },
+    {
+      "label": "Tests: all",
+      "type": "shell",
+      "group": "test",
+      "command": "ctest --preset all --output-on-failure"
+    },
+    {
+      "label": "Parameter table: check and regenerate",
+      "type": "shell",
+      "command": "python3 scripts/dsp-kit/paramgen.py check parameters.csv && python3 scripts/dsp-kit/paramgen.py juce parameters.csv -o Source/Params.h && python3 scripts/dsp-kit/paramgen.py manual parameters.csv -o docs/parameters.md",
+      "windows": {
+        "command": "python scripts/dsp-kit/paramgen.py check parameters.csv; if ($?) { python scripts/dsp-kit/paramgen.py juce parameters.csv -o Source/Params.h; python scripts/dsp-kit/paramgen.py manual parameters.csv -o docs/parameters.md }"
+      }
+    },
+    {
+      "label": "Harness: smoke",
+      "type": "shell",
+      "command": "H=$(ls build/*Harness_artefacts/Release/*Harness | head -1) && python3 scripts/dsp-kit/dspkit.py smoke \"$H\"",
+      "windows": {
+        "command": "$H = (Get-ChildItem build -Recurse -Filter *Harness.exe | Select-Object -First 1).FullName; python scripts/dsp-kit/dspkit.py smoke $H"
+      }
+    },
+    {
+      "label": "Install plugin for Ableton Live (Mac)",
+      "type": "shell",
+      "command": "tools/install_plugin.sh",
+      "windows": {
+        "command": "$v = Get-ChildItem build -Recurse -Directory -Filter *.vst3 | Where-Object { $_.FullName -match 'Release' } | Select-Object -First 1; Copy-Item $v.FullName 'C:\\Program Files\\Common Files\\VST3\\' -Recurse -Force; Write-Output \"copied $($v.Name), rescan in Ableton Live\""
+      }
+    },
+    {
+      "label": "Editor snapshots 100/150/200 %",
+      "type": "shell",
+      "command": "T=$(cmake --build build --target help | grep -o '[A-Za-z]*GuiSnapshot' | head -1) && cmake --build build --target \"$T\" && S=$(ls build/*GuiSnapshot_artefacts/Release/*GuiSnapshot | head -1) && mkdir -p docs/ui && for s in 1 1.5 2; do \"$S\" --scale=$s --out=docs/ui/panel@${s}x.png; done"
+    },
+    {
+      "label": "Shared code: refresh Source/oberli from the template",
+      "type": "shell",
+      "command": "python3 tools/refresh_oberli.py",
+      "windows": {
+        "command": "python tools/refresh_oberli.py"
+      }
+    },
+    {
+      "label": "Validate: quick (pluginval)",
+      "type": "shell",
+      "command": "V=$(ls -d build/*_artefacts/Release/VST3/*.vst3 | head -1) && python3 scripts/dsp-kit/validate_plugin.py --profile quick --plugin \"$V\""
+    },
+    {
+      "label": "Toolchain: check machine paths",
+      "type": "shell",
+      "command": "python3 scripts/dsp-kit/toolchain.py check",
+      "windows": {
+        "command": "python scripts/dsp-kit/toolchain.py check"
+      }
+    },
+    {
+      "label": "Status: show Waiting for Björn",
+      "type": "shell",
+      "command": "awk '/Waiting for Björn/{f=1} f&&/^## /&&!/Waiting/{exit} f' docs/status.md || echo 'no section yet'",
+      "windows": {
+        "command": "Select-String -Path docs/status.md -Pattern 'Waiting for Björn' -Context 0,15"
+      }
+    }
+  ]
+}

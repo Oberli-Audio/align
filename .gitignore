@@ -33,7 +33,11 @@ install_manifest.txt
 
 # IDEs, editors, OS
 .vs/
-.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
 .idea/
 .cache/
 *.xcodeproj/

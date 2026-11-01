@@ -1,0 +1,14 @@
+{
+  "recommendations": [
+    "anthropic.claude-code",
+    "ms-vscode.cmake-tools",
+    "llvm-vs-code-extensions.vscode-clangd",
+    "vadimcn.vscode-lldb",
+    "ms-vscode.cpptools",
+    "ms-python.python",
+    "tamasfe.even-better-toml",
+    "mechatroner.rainbow-csv",
+    "yzhang.markdown-all-in-one"
+  ],
+  "unwantedRecommendations": ["ms-vscode.cpptools-extension-pack"]
+}

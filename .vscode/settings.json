@@ -1,0 +1,20 @@
+{
+  "cmake.useCMakePresets": "always",
+  "cmake.configureOnOpen": false,
+  "cmake.exportCompileCommandsFile": true,
+  "cmake.copyCompileCommands": "${workspaceFolder}/compile_commands.json",
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "C_Cpp.autocomplete": "disabled",
+  "C_Cpp.errorSquiggles": "disabled",
+  "clangd.arguments": ["--background-index", "--header-insertion=never", "--clang-tidy=false"],
+  "files.associations": { "*.dsp": "faust", "*.oberlipreset": "xml", "*.toml": "toml" },
+  "files.exclude": { "build*/": true, "**/__pycache__": true, ".cache/": true },
+  "search.exclude": { "build*/": true, "_deps/": true, "**/JUCE/**": true },
+  "files.watcherExclude": { "**/build*/**": true },
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "editor.rulers": [100],
+  "python.analysis.extraPaths": ["scripts/dsp-kit", "scripts/ship"],
+  "[markdown]": { "editor.wordWrap": "on" },
+  "[csv]": { "editor.wordWrap": "off" }
+}
