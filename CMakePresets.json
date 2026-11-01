@@ -53,11 +53,11 @@
     }
   ],
   "buildPresets": [
-    { "name": "release", "configurePreset": "release", "configuration": "Release", "targets": [ "{{ProductId}}_VST3", "{{ProductId}}_Standalone", "{{ProductId}}Harness" ] },
-    { "name": "debug", "configurePreset": "debug", "targets": [ "{{ProductId}}_VST3", "{{ProductId}}Harness" ] },
-    { "name": "asan", "configurePreset": "asan", "targets": [ "{{ProductId}}_VST3", "{{ProductId}}Harness" ] },
-    { "name": "tsan", "configurePreset": "tsan", "targets": [ "{{ProductId}}_VST3", "{{ProductId}}Harness" ] },
-    { "name": "rtsan", "configurePreset": "rtsan", "targets": [ "{{ProductId}}Harness" ] }
+    { "name": "release", "configurePreset": "release", "configuration": "Release", "targets": [ "Align_VST3", "Align_Standalone", "AlignHarness" ] },
+    { "name": "debug", "configurePreset": "debug", "targets": [ "Align_VST3", "AlignHarness" ] },
+    { "name": "asan", "configurePreset": "asan", "targets": [ "Align_VST3", "AlignHarness" ] },
+    { "name": "tsan", "configurePreset": "tsan", "targets": [ "Align_VST3", "AlignHarness" ] },
+    { "name": "rtsan", "configurePreset": "rtsan", "targets": [ "AlignHarness" ] }
   ],
   "testPresets": [
     { "name": "fast", "configurePreset": "release", "filter": { "include": { "label": "fast" } }, "output": { "outputOnFailure": true } },

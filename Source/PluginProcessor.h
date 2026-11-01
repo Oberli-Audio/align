@@ -9,21 +9,21 @@
 
 #include "Params.h"
 
-/*  {{Product}} - the processor.
+/*  Align - the processor.
 
     Thread model (sound-design-bob rule 1, D.1): the audio thread reads parameters through cached
     atomics, never by string lookup; nothing on the audio thread allocates, locks or logs; every
     parameter that reaches the audio path is smoothed with the table's tau (Params::smoothing).
     State is State.h's format. The editor reads what the processor publishes as atomics only.
 
-    This is the template's skeleton: {{kind}} with the parameters of parameters.csv (outGain and,
+    This is the template's skeleton: effect with the parameters of parameters.csv (outGain and,
     for an effect, bypass and mix). sound-design-bob replaces the DSP at G4 behind the same
     contract; plugin-ui-bob replaces the editor at G2. Keep the lifecycle calls as they are. */
-class {{ProductId}}AudioProcessor final : public juce::AudioProcessor
+class AlignAudioProcessor final : public juce::AudioProcessor
 {
 public:
-    {{ProductId}}AudioProcessor();
-    ~{{ProductId}}AudioProcessor() override = default;
+    AlignAudioProcessor();
+    ~AlignAudioProcessor() override = default;
 
     // AudioProcessor
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -94,5 +94,5 @@ private:
     std::atomic<float> rmsL { 0.0f }, rmsR { 0.0f };
     juce::dsp::BallisticsFilter<float> rmsFilterL, rmsFilterR;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR ({{ProductId}}AudioProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AlignAudioProcessor)
 };

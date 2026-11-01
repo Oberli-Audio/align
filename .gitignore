@@ -51,7 +51,7 @@ __pycache__/
 *.pyc
 
 # Release assets CI writes into the checkout (a release is built from a clean tree)
-/{{ProductId}}-*.zip
+/Align-*.zip
 /build-info-*.json
 /SHA256SUMS.txt
 /RELEASE_NOTES.md

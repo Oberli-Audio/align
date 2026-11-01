@@ -4,15 +4,15 @@ Guidance for Claude Code in this repository.
 
 ## What this is
 
-{{Product}} (Oberli Audio), an {{kind}} plugin (VST3; the formats ship.toml lists), built with
+Align (Oberli Audio), an effect plugin (VST3; the formats ship.toml lists), built with
 JUCE pinned by commit (CMakeLists.txt) and started from the family template
-(Oberli-Audio/plugin-template). Theme {{theme}}, accent {{accent}} ({{AccentHex}}), plugin code
-`{{Code}}`, bundle id `{{BundleId}}`: all from the family registry (ship-bob
+(Oberli-Audio/plugin-template). Theme bone, accent saffron (#F6BF26), plugin code
+`Algn`, bundle id `com.oberliaudio.align`: all from the family registry (ship-bob
 `registry/plugins.toml`), never changed after the first release.
 
 ## Tier and process
 
-The project runs at **Tier {{Tier}}** (`scripts/dsp-kit/../references`: the tier definition is
+The project runs at **Tier P** (`scripts/dsp-kit/../references`: the tier definition is
 `tiers.md` in every bob skill). Sound: the **sound-design-bob** skill (gates G0-G7, the DSP
 playbook in its `references/`, grep them, never read them whole; the textbook half is
 **dsp-reference-bob**). Editor: **plugin-ui-bob**, on the same tier, gates and parameter table,
@@ -50,10 +50,10 @@ DEVELOPING.md has every command. The short form:
 ```bash
 cmake --preset release && cmake --build --preset release      # VST3, Standalone, the harness
 ctest --preset fast                                           # the inner loop, under 60 s
-./build/{{ProductId}}Harness_artefacts/Release/{{ProductId}}Harness --help   # the offline renderer (harness contract v3)
+./build/AlignHarness_artefacts/Release/AlignHarness --help   # the offline renderer (harness contract v3)
 ```
 
-`{{ProductId}}Harness` (`tools/harness/Main.cpp`) renders the real plugin code without a host and
+`AlignHarness` (`tools/harness/Main.cpp`) renders the real plugin code without a host and
 prints one JSON object; every measurement script drives it. The Tier P realtime check is the
 malloc trap inside it (every render is an allocation test); the `rtsan` preset builds it with
 RealtimeSanitizer. `tools/tests/test_plugin.py` is the suite (labels `fast`, `render`); **add a

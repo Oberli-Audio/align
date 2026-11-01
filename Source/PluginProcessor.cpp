@@ -15,7 +15,7 @@ T* param (juce::AudioProcessorValueTreeState& apvts, const char* id)
 }
 } // namespace
 
-{{ProductId}}AudioProcessor::{{ProductId}}AudioProcessor()
+AlignAudioProcessor::AlignAudioProcessor()
     : AudioProcessor (BusesProperties()
 #if ! PRODUCT_IS_INSTRUMENT
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
@@ -30,7 +30,7 @@ T* param (juce::AudioProcessorValueTreeState& apvts, const char* id)
 #endif
 }
 
-void {{ProductId}}AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+void AlignAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
     // smoothing from the table (Params::smoothing): tau in ms -> JUCE ramp length (settle in about 4.6 tau)
@@ -62,9 +62,9 @@ void {{ProductId}}AudioProcessor::prepareToPlay (double sampleRate, int samplesP
     rmsR.store (0.0f);
 }
 
-void {{ProductId}}AudioProcessor::releaseResources() {}
+void AlignAudioProcessor::releaseResources() {}
 
-bool {{ProductId}}AudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+bool AlignAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
@@ -76,7 +76,7 @@ bool {{ProductId}}AudioProcessor::isBusesLayoutSupported (const BusesLayout& lay
     return true;
 }
 
-double {{ProductId}}AudioProcessor::getTailLengthSeconds() const
+double AlignAudioProcessor::getTailLengthSeconds() const
 {
 #if PRODUCT_IS_INSTRUMENT
     return 0.3;   // the release of the skeleton's envelope; the real instrument reports its longest tail (D.2.5)
@@ -85,7 +85,7 @@ double {{ProductId}}AudioProcessor::getTailLengthSeconds() const
 #endif
 }
 
-juce::AudioProcessorParameter* {{ProductId}}AudioProcessor::getBypassParameter() const
+juce::AudioProcessorParameter* AlignAudioProcessor::getBypassParameter() const
 {
 #if PRODUCT_IS_INSTRUMENT
     return nullptr;   // rule 7 does not apply to an instrument
@@ -94,7 +94,7 @@ juce::AudioProcessorParameter* {{ProductId}}AudioProcessor::getBypassParameter()
 #endif
 }
 
-void {{ProductId}}AudioProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void AlignAudioProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     // an effect passes the input through, an instrument is silent; output channels beyond the input are cleared
     for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
@@ -102,7 +102,7 @@ void {{ProductId}}AudioProcessor::processBlockBypassed (juce::AudioBuffer<float>
 }
 
 #if PRODUCT_IS_INSTRUMENT
-void {{ProductId}}AudioProcessor::noteOn (int note, float velocity)
+void AlignAudioProcessor::noteOn (int note, float velocity)
 {
     Voice* slot = nullptr;
     for (auto& v : voices)
@@ -121,14 +121,14 @@ void {{ProductId}}AudioProcessor::noteOn (int note, float velocity)
     slot->env.noteOn();
 }
 
-void {{ProductId}}AudioProcessor::noteOff (int note)
+void AlignAudioProcessor::noteOff (int note)
 {
     for (auto& v : voices)
         if (v.note == note)
             v.env.noteOff();
 }
 
-void {{ProductId}}AudioProcessor::renderVoices (juce::AudioBuffer<float>& out, int start, int numSamples)
+void AlignAudioProcessor::renderVoices (juce::AudioBuffer<float>& out, int start, int numSamples)
 {
     const float bend = std::pow (2.0f, pitchBendSemitones / 12.0f);
     for (auto& v : voices)
@@ -158,7 +158,7 @@ void {{ProductId}}AudioProcessor::renderVoices (juce::AudioBuffer<float>& out, i
 }
 #endif
 
-void {{ProductId}}AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+void AlignAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
     const int numSamples = buffer.getNumSamples();
@@ -237,22 +237,22 @@ void {{ProductId}}AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     rmsR.store (r != nullptr ? lastR : lastL, std::memory_order_relaxed);
 }
 
-juce::AudioProcessorEditor* {{ProductId}}AudioProcessor::createEditor()
+juce::AudioProcessorEditor* AlignAudioProcessor::createEditor()
 {
-    return new {{ProductId}}AudioProcessorEditor (*this);
+    return new AlignAudioProcessorEditor (*this);
 }
 
-void {{ProductId}}AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
+void AlignAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    copyXmlToBinary (*{{bundle}}::State::toXml (apvts), destData);
+    copyXmlToBinary (*align::State::toXml (apvts), destData);
 }
 
-void {{ProductId}}AudioProcessor::setStateInformation (const void* data, int sizeInBytes)
+void AlignAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     loadState (data, sizeInBytes);
 }
 
-bool {{ProductId}}AudioProcessor::loadState (const void* data, int sizeInBytes)
+bool AlignAudioProcessor::loadState (const void* data, int sizeInBytes)
 {
     // arbitrary bytes are refused, never crashed on (D.5.3): a foreign or newer blob leaves the state as it is
     if (data == nullptr || sizeInBytes <= 0)
@@ -260,11 +260,11 @@ bool {{ProductId}}AudioProcessor::loadState (const void* data, int sizeInBytes)
     auto xml = getXmlFromBinary (data, sizeInBytes);
     if (xml == nullptr)
         return false;
-    auto* state = {{bundle}}::State::stateOf (*xml);
-    return state != nullptr && {{bundle}}::State::fromXml (*state, apvts);
+    auto* state = align::State::stateOf (*xml);
+    return state != nullptr && align::State::fromXml (*state, apvts);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    return new {{ProductId}}AudioProcessor();
+    return new AlignAudioProcessor();
 }

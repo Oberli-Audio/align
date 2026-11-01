@@ -23,11 +23,11 @@ from pathlib import Path
 sys.path.insert(0, os.environ.get("DSPKIT", str(Path(__file__).resolve().parent)))
 import dspkit as K  # noqa: E402
 
-HARNESS = os.environ.get("HARNESS", "build/{{ProductId}}Harness_artefacts/Release/{{ProductId}}Harness")
+HARNESS = os.environ.get("HARNESS", "build/AlignHarness_artefacts/Release/AlignHarness")
 GOLDEN_DIR = Path(os.environ.get("GOLDEN_DIR", "tools/tests/golden"))   # committed goldens + sidecars
 GOLDEN_ARCH = os.environ.get("GOLDEN_ARCH", "x86_64")                # D.2.1: the slice the host runs
 DEFAULT = dict(seed=1, sample_rate=48000, block=512, seconds=2.0)
-SOURCE = {{HarnessSourceDict}}
+SOURCE = dict(signal="impulse")
 PARAM = ("outGain", 0.25)            # one real parameter ID and a non-default value
 RATES = (44100, 48000, 88200, 96000, 176400, 192000)
 BLOCKS = (0, 1, 13, 32, 64, 512, 4096)

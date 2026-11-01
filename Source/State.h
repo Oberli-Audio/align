@@ -4,17 +4,17 @@
 
 /*  The product's state and preset format (sound-design-bob D.5.3, D.6.5).
 
-    Session state and every preset file carry one <{{ProductId}}State version="N" dspVersion="M">
+    Session state and every preset file carry one <AlignState version="N" dspVersion="M">
     element with the parameters by ID in plain units (the parameter table's) under <PARAMETERS>,
     and anything that is not a parameter under <Extra>. A newer file is refused, an older one
     migrated; IDs and the format freeze at the first release (rule 19). Preset files are
     <OberliPreset> documents (.oberlipreset) wrapping that element, as plugin-ui-bob's drawer
     writes and reads them. */
-namespace {{bundle}}::State
+namespace align::State
 {
 inline constexpr int kStateVersion = 1;   // bump with a migration and a changelog line
 inline constexpr int kDspVersion = 1;     // bump when a factory sound changes on purpose (Sounds different)
-inline constexpr const char* kStateTag = "{{ProductId}}State";
+inline constexpr const char* kStateTag = "AlignState";
 inline constexpr const char* kPresetTag = "OberliPreset";
 inline constexpr const char* kPresetExtension = ".oberlipreset";
 
@@ -95,4 +95,4 @@ inline const juce::XmlElement* stateOf (const juce::XmlElement& doc)
         return doc.getChildByName (kStateTag);
     return nullptr;
 }
-} // namespace {{bundle}}::State
+} // namespace align::State

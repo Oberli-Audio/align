@@ -1,4 +1,4 @@
-# {{Product}}: build on macOS (universal) and Windows, run the fast suite and the validators on
+# Align: build on macOS (universal) and Windows, run the fast suite and the validators on
 # every push; a v* tag adds the release assets (ship-bob templates/release.yml: ad-hoc signed
 # zips, symbols, provenance, checksums, a draft GitHub Release). The format set is ship.toml's:
 # the staging loops below take every bundle that exists.
@@ -50,7 +50,7 @@ jobs:
           -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
           "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
       - name: Build
-        run: cmake --build build --config Release --target {{ProductId}}_VST3 {{ProductId}}Harness
+        run: cmake --build build --config Release --target Align_VST3 AlignHarness
       - name: Fast suite and lints
         shell: bash
         run: ctest --test-dir build -C Release -L fast --output-on-failure
@@ -58,7 +58,7 @@ jobs:
         shell: bash
         run: >
           python scripts/dsp-kit/validate_plugin.py --profile quick --only validator,pluginval --no-build --fetch-pluginval --strict
-          --plugin "build/{{ProductId}}_artefacts/Release/VST3/{{Product}}.vst3" --out validation-logs
+          --plugin "build/Align_artefacts/Release/VST3/Align.vst3" --out validation-logs
       - name: Upload validation logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -68,7 +68,7 @@ jobs:
       - name: Sign ad-hoc, stage, zip, symbols, provenance (macOS)
         if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
         run: |
-          cd build/{{ProductId}}_artefacts/Release
+          cd build/Align_artefacts/Release
           rm -rf stage symbols && mkdir -p stage symbols
           for b in VST3/*.vst3 AU/*.component CLAP/*.clap; do
             [ -e "$b" ] || continue
@@ -79,10 +79,10 @@ jobs:
             cp -R "$b" stage/
           done
           cp "$GITHUB_WORKSPACE/LICENSE" "$GITHUB_WORKSPACE/THIRD_PARTY_NOTICES.md" stage/
-          ditto -c -k --norsrc --noextattr stage "$GITHUB_WORKSPACE/{{ProductId}}-macOS.zip"
+          ditto -c -k --norsrc --noextattr stage "$GITHUB_WORKSPACE/Align-macOS.zip"
           find . -maxdepth 2 -name "*.dSYM" -not -path "./symbols/*" -exec cp -R {} symbols/ \;
           ls symbols
-          ditto -c -k --norsrc --noextattr symbols "$GITHUB_WORKSPACE/{{ProductId}}-symbols-macOS.zip"
+          ditto -c -k --norsrc --noextattr symbols "$GITHUB_WORKSPACE/Align-symbols-macOS.zip"
           python3 "$GITHUB_WORKSPACE/scripts/ship/buildinfo.py" emit --repo "$GITHUB_WORKSPACE" --build "$GITHUB_WORKSPACE/build" \
             --platform macos --symbols symbols/*.dSYM --out "$GITHUB_WORKSPACE/build-info-macOS.json"
           python3 "$GITHUB_WORKSPACE/scripts/ship/buildinfo.py" check "$GITHUB_WORKSPACE/build-info-macOS.json" \
@@ -91,12 +91,12 @@ jobs:
         if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
-          $A = "build/{{ProductId}}_artefacts/Release"
-          $bundles = @("$A/VST3/{{Product}}.vst3") + (Get-ChildItem "$A/CLAP/*.clap" -ErrorAction SilentlyContinue).FullName
-          Compress-Archive -Path ($bundles + "LICENSE", "THIRD_PARTY_NOTICES.md") -DestinationPath {{ProductId}}-Windows-x64.zip
+          $A = "build/Align_artefacts/Release"
+          $bundles = @("$A/VST3/Align.vst3") + (Get-ChildItem "$A/CLAP/*.clap" -ErrorAction SilentlyContinue).FullName
+          Compress-Archive -Path ($bundles + "LICENSE", "THIRD_PARTY_NOTICES.md") -DestinationPath Align-Windows-x64.zip
           $pdbs = Get-ChildItem $A -Recurse -Filter *.pdb
           if (-not $pdbs) { throw "no PDB: the release build must keep symbols (PRODUCT_RELEASE_SYMBOLS)" }
-          Compress-Archive -Path $pdbs.FullName -DestinationPath {{ProductId}}-symbols-Windows.zip
+          Compress-Archive -Path $pdbs.FullName -DestinationPath Align-symbols-Windows.zip
           Copy-Item scripts/ship/enable-crashdumps.reg .
           python scripts/ship/buildinfo.py emit --repo . --build build --platform windows --symbols $pdbs.FullName --out build-info-Windows.json
           python scripts/ship/buildinfo.py check build-info-Windows.json --expect-version $env:GITHUB_REF_NAME.Substring(1) --platform windows
@@ -106,7 +106,7 @@ jobs:
         with:
           name: release-${{ matrix.name }}
           path: |
-            {{ProductId}}-*.zip
+            Align-*.zip
             build-info-*.json
             enable-crashdumps.reg
           if-no-files-found: error

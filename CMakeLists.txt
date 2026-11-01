@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-# {{Product}} - an Oberli Audio plugin, started from Oberli-Audio/plugin-template.
+# Align - an Oberli Audio plugin, started from Oberli-Audio/plugin-template.
 # Build commands: DEVELOPING.md. Rules this file follows: ship-bob versioning-and-provenance.md
 # (one VERSION file, provenance header, pins, platform settings), sound-design-bob D.1.6 (the
 # sanitizer builds) and the harness contract (scripts/dsp-kit/harness-contract.md).
@@ -16,7 +16,7 @@ if (NOT CMAKE_OSX_DEPLOYMENT_TARGET)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum macOS deployment version" FORCE)
 endif()
 
-project({{ProductId}} VERSION ${PRODUCT_VERSION} LANGUAGES C CXX)
+project(Align VERSION ${PRODUCT_VERSION} LANGUAGES C CXX)
 
 # Provenance for the About panel and a friend's report, read from git at configure time and
 # written to one generated header (a target-wide definition would rebuild every JUCE module
@@ -83,7 +83,7 @@ endif()
 # them); the FORMATS line is the shipped set of ship.toml plus Standalone, which is never
 # shipped: it is the arm64 smoke test of the release gate.
 # ---------------------------------------------------------------------------
-set(PRODUCT_KIND "{{kind}}")   # instrument or effect; init_plugin.py set it from the registry
+set(PRODUCT_KIND "effect")   # instrument or effect; init_plugin.py set it from the registry
 if (PRODUCT_KIND STREQUAL "instrument")
     set(PRODUCT_IS_SYNTH TRUE)
     set(PRODUCT_NEEDS_MIDI TRUE)
@@ -94,14 +94,14 @@ else()
     set(PRODUCT_VST3_CATEGORIES "Fx")
 endif()
 
-juce_add_plugin({{ProductId}}
+juce_add_plugin(Align
     VERSION                     ${PRODUCT_VERSION}
     COMPANY_NAME                "Oberli Audio"
-    BUNDLE_ID                   "{{BundleId}}"
+    BUNDLE_ID                   "com.oberliaudio.align"
     PLUGIN_MANUFACTURER_CODE    Obrl
-    PLUGIN_CODE                 {{Code}}
-    FORMATS                     {{Formats}}
-    PRODUCT_NAME                "{{Product}}"
+    PLUGIN_CODE                 Algn
+    FORMATS                     VST3 Standalone
+    PRODUCT_NAME                "Align"
     VST3_CATEGORIES             ${PRODUCT_VST3_CATEGORIES}
     IS_SYNTH                    ${PRODUCT_IS_SYNTH}
     NEEDS_MIDI_INPUT            ${PRODUCT_NEEDS_MIDI}
@@ -120,9 +120,9 @@ set(PRODUCT_SOURCES
     Source/Params.h
     Source/State.h)
 
-target_sources({{ProductId}} PRIVATE ${PRODUCT_SOURCES})
-target_include_directories({{ProductId}} PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_compile_definitions({{ProductId}}
+target_sources(Align PRIVATE ${PRODUCT_SOURCES})
+target_include_directories(Align PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_compile_definitions(Align
     PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
@@ -131,7 +131,7 @@ target_compile_definitions({{ProductId}}
         JUCE_REPORT_APP_USAGE=0
         JUCE_STRICT_REFCOUNTEDPOINTER=1
         PRODUCT_IS_INSTRUMENT=$<IF:$<BOOL:${PRODUCT_IS_SYNTH}>,1,0>)
-target_link_libraries({{ProductId}}
+target_link_libraries(Align
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
@@ -145,15 +145,15 @@ target_link_libraries({{ProductId}}
 option(PRODUCT_RELEASE_SYMBOLS "Keep a dSYM / PDB per format and strip the shipped binary" OFF)
 if (PRODUCT_RELEASE_SYMBOLS)
     if (MSVC)
-        target_compile_options({{ProductId}} PUBLIC $<$<CONFIG:Release>:/Zi>)
-        target_link_options({{ProductId}} PUBLIC $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF>)
+        target_compile_options(Align PUBLIC $<$<CONFIG:Release>:/Zi>)
+        target_link_options(Align PUBLIC $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF>)
     elseif (APPLE)
-        target_compile_options({{ProductId}} PUBLIC $<$<CONFIG:Release>:-g>)
-        foreach(format {{Formats}})
-            if (TARGET {{ProductId}}_${format})
-                add_custom_command(TARGET {{ProductId}}_${format} POST_BUILD
-                    COMMAND dsymutil "$<TARGET_FILE:{{ProductId}}_${format}>" -o "$<TARGET_BUNDLE_DIR:{{ProductId}}_${format}>.dSYM"
-                    COMMAND strip -x "$<TARGET_FILE:{{ProductId}}_${format}>"
+        target_compile_options(Align PUBLIC $<$<CONFIG:Release>:-g>)
+        foreach(format VST3 Standalone)
+            if (TARGET Align_${format})
+                add_custom_command(TARGET Align_${format} POST_BUILD
+                    COMMAND dsymutil "$<TARGET_FILE:Align_${format}>" -o "$<TARGET_BUNDLE_DIR:Align_${format}>.dSYM"
+                    COMMAND strip -x "$<TARGET_FILE:Align_${format}>"
                     COMMENT "dSYM and strip: ${format}"
                     VERBATIM)
             endif()
@@ -166,59 +166,59 @@ endif()
 option(PRODUCT_ASAN "Build the plugin and the harness with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
 if (PRODUCT_ASAN)
     if (MSVC)
-        target_compile_options({{ProductId}} PUBLIC /fsanitize=address)
-        target_link_options({{ProductId}} PUBLIC /INCREMENTAL:NO)
+        target_compile_options(Align PUBLIC /fsanitize=address)
+        target_link_options(Align PUBLIC /INCREMENTAL:NO)
     else()
-        target_compile_options({{ProductId}} PUBLIC -fsanitize=address,undefined -fno-omit-frame-pointer)
-        target_link_options({{ProductId}} PUBLIC -fsanitize=address,undefined)
+        target_compile_options(Align PUBLIC -fsanitize=address,undefined -fno-omit-frame-pointer)
+        target_link_options(Align PUBLIC -fsanitize=address,undefined)
     endif()
 endif()
 option(PRODUCT_TSAN "Build the plugin and the harness with ThreadSanitizer (Tier F)" OFF)
 if (PRODUCT_TSAN AND NOT MSVC)
-    target_compile_options({{ProductId}} PUBLIC -fsanitize=thread)
-    target_link_options({{ProductId}} PUBLIC -fsanitize=thread)
+    target_compile_options(Align PUBLIC -fsanitize=thread)
+    target_link_options(Align PUBLIC -fsanitize=thread)
 endif()
 
 # ---------------------------------------------------------------------------
-# {{ProductId}}Harness: the offline renderer of scripts/dsp-kit/harness-contract.md (v3).
+# AlignHarness: the offline renderer of scripts/dsp-kit/harness-contract.md (v3).
 # Links the plugin's shared code and renders without a host, a device or the editor; every
 # measurement script and the test suite drive it. Built in the sanitizer configurations too.
 # ---------------------------------------------------------------------------
-juce_add_console_app({{ProductId}}Harness PRODUCT_NAME "{{ProductId}}Harness")
-target_sources({{ProductId}}Harness PRIVATE tools/harness/Main.cpp)
-target_include_directories({{ProductId}}Harness PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}/generated"
-    "${CMAKE_CURRENT_BINARY_DIR}/{{ProductId}}_artefacts/JuceLibraryCode")
-target_compile_definitions({{ProductId}}Harness PRIVATE
+juce_add_console_app(AlignHarness PRODUCT_NAME "AlignHarness")
+target_sources(AlignHarness PRIVATE tools/harness/Main.cpp)
+target_include_directories(AlignHarness PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    "${CMAKE_CURRENT_BINARY_DIR}/Align_artefacts/JuceLibraryCode")
+target_compile_definitions(AlignHarness PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0
     JUCE_STRICT_REFCOUNTEDPOINTER=1 JUCE_STANDALONE_APPLICATION=1
     PRODUCT_IS_INSTRUMENT=$<IF:$<BOOL:${PRODUCT_IS_SYNTH}>,1,0>)
 # The harness compiles the plugin sources itself with its own copy of the modules (simple and
 # portable; Horizon Pad links the SharedCode library instead, which saves a compile).
-target_sources({{ProductId}}Harness PRIVATE ${PRODUCT_SOURCES})
-target_link_libraries({{ProductId}}Harness PRIVATE
+target_sources(AlignHarness PRIVATE ${PRODUCT_SOURCES})
+target_link_libraries(AlignHarness PRIVATE
     juce::juce_audio_utils juce::juce_dsp juce::juce_audio_formats
     juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 if (PRODUCT_ASAN)
     if (MSVC)
-        target_compile_options({{ProductId}}Harness PRIVATE /fsanitize=address)
-        target_link_options({{ProductId}}Harness PRIVATE /INCREMENTAL:NO)
+        target_compile_options(AlignHarness PRIVATE /fsanitize=address)
+        target_link_options(AlignHarness PRIVATE /INCREMENTAL:NO)
     else()
-        target_compile_options({{ProductId}}Harness PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
-        target_link_options({{ProductId}}Harness PRIVATE -fsanitize=address,undefined)
+        target_compile_options(AlignHarness PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+        target_link_options(AlignHarness PRIVATE -fsanitize=address,undefined)
     endif()
 endif()
 if (PRODUCT_TSAN AND NOT MSVC)
-    target_compile_options({{ProductId}}Harness PRIVATE -fsanitize=thread)
-    target_link_options({{ProductId}}Harness PRIVATE -fsanitize=thread)
+    target_compile_options(AlignHarness PRIVATE -fsanitize=thread)
+    target_link_options(AlignHarness PRIVATE -fsanitize=thread)
 endif()
 # Real-time safety (rule 1): the harness with RealtimeSanitizer; needs LLVM 20+ (the rtsan
 # preset takes the compiler from $LLVM_ROOT, set by `toolchain.py env`). processBlock runs as a
 # real-time context and any allocation, lock or system call aborts with a stack trace.
 option(PRODUCT_RTSAN "Build the harness with RealtimeSanitizer" OFF)
 if (PRODUCT_RTSAN)
-    target_compile_options({{ProductId}}Harness PRIVATE -fsanitize=realtime)
-    target_link_options({{ProductId}}Harness PRIVATE -fsanitize=realtime)
-    target_compile_definitions({{ProductId}}Harness PRIVATE PRODUCT_RTSAN=1)
+    target_compile_options(AlignHarness PRIVATE -fsanitize=realtime)
+    target_link_options(AlignHarness PRIVATE -fsanitize=realtime)
+    target_compile_definitions(AlignHarness PRIVATE PRODUCT_RTSAN=1)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -233,7 +233,7 @@ if (Python3_FOUND)
     execute_process(COMMAND "${Python3_EXECUTABLE}" -c "import numpy, scipy" RESULT_VARIABLE PRODUCT_PY_DEPS OUTPUT_QUIET ERROR_QUIET)
     if (PRODUCT_PY_DEPS EQUAL 0)
         enable_testing()
-        set(HARNESS_ENV "HARNESS=$<TARGET_FILE:{{ProductId}}Harness>" "DSPKIT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/dsp-kit"
+        set(HARNESS_ENV "HARNESS=$<TARGET_FILE:AlignHarness>" "DSPKIT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/dsp-kit"
             "PRESET_ROOT=${CMAKE_CURRENT_BINARY_DIR}/test-presets" "FACTORY_PRESETS=${CMAKE_CURRENT_SOURCE_DIR}/presets")
         foreach(label fast render)
             add_test(NAME suite_${label}
@@ -242,17 +242,17 @@ if (Python3_FOUND)
             set_tests_properties(suite_${label} PROPERTIES ENVIRONMENT "${HARNESS_ENV}" LABELS ${label})
         endforeach()
         add_test(NAME harness_contract
-                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/dsp-kit/dspkit.py" smoke "$<TARGET_FILE:{{ProductId}}Harness>"
+                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/dsp-kit/dspkit.py" smoke "$<TARGET_FILE:AlignHarness>"
                  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
         set_tests_properties(harness_contract PROPERTIES ENVIRONMENT "${HARNESS_ENV}" LABELS fast)
         add_test(NAME parameter_table
                  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/tests/check_table.py"
-                         --harness "$<TARGET_FILE:{{ProductId}}Harness>" --kind ${PRODUCT_KIND}
+                         --harness "$<TARGET_FILE:AlignHarness>" --kind ${PRODUCT_KIND}
                  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
         set_tests_properties(parameter_table PROPERTIES LABELS "fast;lint")
         add_test(NAME preset_bank
                  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/dsp-kit/presetlint.py" bank
-                         "${CMAKE_CURRENT_SOURCE_DIR}/presets.csv" --tier S --track ${PRODUCT_KIND} --harness "$<TARGET_FILE:{{ProductId}}Harness>"
+                         "${CMAKE_CURRENT_SOURCE_DIR}/presets.csv" --tier S --track ${PRODUCT_KIND} --harness "$<TARGET_FILE:AlignHarness>"
                  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
         set_tests_properties(preset_bank PROPERTIES ENVIRONMENT "${HARNESS_ENV}" LABELS "fast;lint")
     else()

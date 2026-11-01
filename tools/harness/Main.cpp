@@ -1,4 +1,4 @@
-/*  {{ProductId}}Harness - the offline renderer of the harness contract (scripts/dsp-kit/harness-contract.md, v3).
+/*  AlignHarness - the offline renderer of the harness contract (scripts/dsp-kit/harness-contract.md, v3).
 
     Links the real plugin sources, renders without a host, an audio device or the editor, and prints
     one JSON object on stdout; diagnostics go to stderr. `dspkit.render()`, the test suite
@@ -8,7 +8,7 @@
     sound tool (tools/sound_tool/Main.cpp there) is the reference implementation with a product's
     descriptors added.
 
-    Usage: {{ProductId}}Harness --help
+    Usage: AlignHarness --help
 
     Exit codes: 0 rendered; 2 a flag or value was refused (message on stderr); 3 the render produced
     NaN or Inf (the JSON is still printed). */
@@ -141,7 +141,7 @@ namespace
 using Clock = std::chrono::steady_clock;
 
 const char* const kUsage =
-    "{{ProductId}}Harness - offline renderer (harness contract v3)\n"
+    "AlignHarness - offline renderer (harness contract v3)\n"
     "  --seed=<int>                 seeds every random source (default 1)\n"
     "  --sample-rate=<Hz>           default 48000\n"
     "  --block=<n>|random:<seed>    block size, or random sizes from 0 to --max-block (default 512)\n"
@@ -245,14 +245,14 @@ std::vector<PresetRow> presetRows()
 
 bool loadPreset (juce::AudioProcessorValueTreeState& apvts, const juce::String& slug)
 {
-    auto file = factoryFolder().getChildFile (slug + {{bundle}}::State::kPresetExtension);
+    auto file = factoryFolder().getChildFile (slug + align::State::kPresetExtension);
     if (! file.existsAsFile())
         return false;
     auto xml = juce::XmlDocument::parse (file);
     if (xml == nullptr)
         return false;
-    auto* state = {{bundle}}::State::stateOf (*xml);
-    return state != nullptr && {{bundle}}::State::fromXml (*state, apvts);
+    auto* state = align::State::stateOf (*xml);
+    return state != nullptr && align::State::fromXml (*state, apvts);
 }
 
 //------------------------------------------------------------------------------ signals
@@ -459,7 +459,7 @@ static int run (int argc, char* argv[])
 
     juce::ScopedJuceInitialiser_GUI juceInit;   // the processor may touch message-thread objects at construction
     std::unique_ptr<juce::AudioProcessor> processor (createPluginFilter());
-    auto* product = dynamic_cast<{{ProductId}}AudioProcessor*> (processor.get());
+    auto* product = dynamic_cast<AlignAudioProcessor*> (processor.get());
     if (product == nullptr) refuse ("createPluginFilter() did not return the product's processor");
     auto& apvts = product->parameters();
 
@@ -621,7 +621,7 @@ static int run (int argc, char* argv[])
     {
         if (! spec.contains (":")) refuse ("--preset-at needs <t>:<slug>: " + spec);
         PresetAt p { numberOr (spec.upToFirstOccurrenceOf (":", false, false), "--preset-at"), spec.fromFirstOccurrenceOf (":", false, false) };
-        if (! factoryFolder().getChildFile (p.slug + {{bundle}}::State::kPresetExtension).existsAsFile()) refuse ("--preset-at: no factory preset " + p.slug);
+        if (! factoryFolder().getChildFile (p.slug + align::State::kPresetExtension).existsAsFile()) refuse ("--preset-at: no factory preset " + p.slug);
         presetAts.push_back (p);
     }
     std::sort (presetAts.begin(), presetAts.end(), [] (auto& x, auto& y) { return x.t < y.t; });
