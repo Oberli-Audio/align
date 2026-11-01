@@ -1,57 +1,67 @@
-# Sonic brief (owner-confirmed <date>; amend below, never edit the YAML)
+# Sonic brief (owner-confirmed 2026-11-01 from the decided Tier S sketch, docs/sketch.md; amend below, never edit the YAML)
 
 ```yaml
-name:
-track:           # instrument | effect | control | analysis  -- which playbook file leads
-stages:          # the signal-flow stages it owns (F.0): control, generation, processing,
-                 # mix, output, analysis - each brings its contract and tests
-type:            # synth | acoustic-emulation | dynamics | eq | creative-fx | utility | meter | midi-fx
-musical_role:    # rhythm | bass | harmonic-bed | melodic | texture | effect  -- briefs I.7
-tier:            # S (sketch) | P (product) | F (flagship)  -- tiers.md, F.0.1
-one_sentence:
-references:      # 2-3 named products and how this differs
+name: Align
+track: effect
+stages: [processing, analysis, output]
+type: utility
+musical_role: effect
+tier: P
+one_sentence: Lines up a mic against a reference mic in one press (delay, polarity, confidence), proposes a low-end phase rotation, and shows the comb filtering disappear.
+references:
+  - Sound Radix Auto-Align 2: static and dynamic alignment; Align is free and shows the correlation peak and distance
+  - Melda MAutoAlign: similar measurement; Align proposes Rotate instead of applying it
+  - Waves InPhase: manual with correlation meter; Align measures for you
 must_do:
-defining_features:  # the audible features that make it *this* product; each one
-                    # gets a presence test (rule 13), e.g. "Expanse carries a +1 oct shimmer"
-out_of_scope:
-core_controls:   # 3-5, with what each does sonically
-signal_flow:     # ASCII block diagram
-cpu_budget:      # rule 20, per instance: { p999_pct: 25, max_pct: 50, idle_pct: 2,
-                 #   at: 48k/64 (F adds 44.1k/32), slice: x86_64-rosetta, preset: heaviest }
-cpu_reference_machine:  # the concrete machine the budget is written for (F.14.4)
-instances_expected:     # realistic count per project / live rig
-latency_budget:  # samples, and whether latency is acceptable at all
-sample_rates:    [44100, 48000, 88200, 96000, 176400, 192000]
-channels:        # mono | stereo | mono-to-stereo
-register:        # instruments: the lowest and highest key it plays, e.g. C0-C7 - set by
-                 # listening at P and F (I.2.3), silent outside it; re-asked after any
-                 # sound-design pass that moves the bass or the top
-register_intent: # per register, what the sound should do (I.2, F.4), e.g.
-                 #   below C3: tight, mono, dark - foundation, no phasing
-                 #   C3-C5: the voiced sound
-                 #   above C5: opens but never shrill
-presets:         # F.14.3
-  bank_size:          # P: 12-20 instrument / 8-12 effect; F: 30-60
-  categories:         # the fixed list, e.g. [Bed, Motion, Dark, Bright, Keys-like, FX]
-  reference_chord:    # default C3-E3-G3-C4, velocity 100, 4 s hold, 4 s tail
-  loudness_window:    # default short-term max over the hold; pads: from end of attack to note-off
-  edge_presets:       # the 3-4 the translation battery runs on (widest, darkest, most reverb, loudest bass)
-  naming:             # ships in English; voice of the product
-mix_context:     # what it plays with, and the band it must leave free, e.g.
-                 #   "under acoustic guitar, piano, group vocals: leave 1-4 kHz,
-                 #    keep 200-500 Hz no hotter than the voiced default"
-quality_targets: # every target is a pair: the threshold AND the method that
-                 # measures it on this instrument. A target with no working method
-                 # is found out at G3, which is too late.
-  alias_floor_db:     { target: , method: }   # ASR/NMR only for harmonic output; else B.5 rate comparison
-  thd_n_db:           { target: , method: }
-  response_error_db:  { target: , method: }
-  loudness:           { target: , method: }   # e.g. presets -18 LUFS +/-1 LU, F.13.9 protocol
-  keyboard_span_lu:   { target: , method: }   # e.g. < 6 LU per layer over the register, F.13.10
-  low_register:       { target: , method: }   # e.g. roughness at C2 no worse than 3x C4, register battery 1.4
+  - Find delay within 0.02 ms and the right polarity on a 4-bar drum loop, confidence > 80 %
+  - Negative delay via reported latency (Window); 0 (live) window reports zero latency
+  - Detect proposes Rotate and Below with the measured low-band gain; only Apply sets them
+  - Null at Delay 0, Polarity off, Rotate 0 after host compensation
+defining_features:
+  - GCC-PHAT correlation well that keeps the sign (a downward peak shows the flip)
+  - Sum well where the comb notches visibly disappear
+  - Readout in words with distance ("Peak +2.31 ms · 79 cm · polarity flipped · confidence 94 %")
+out_of_scope: [spectral per-band alignment, time-stretching, automatic Rotate without Apply, Group alignment (Tier F)]
+core_controls:
+  - Delay: moves this track against the reference
+  - Polarity: flips the signal
+  - Window: search range and reported latency
+  - Detect: measures and applies delay and polarity, proposes Rotate
+  - Rotate: low-end all-pass where no single delay fits
+signal_flow: |
+  sidechain (reference) -> 4 s ring --+
+  in -> 4 s ring ---------------------+-> Detect (background): GCC-PHAT -> delay, polarity, confidence, Rotate suggestion
+  in -> polarity -> fractional delay (Window + Delay) -> all-pass (Rotate, Below) -> Trim -> out
+cpu_budget: { p999_pct: 25, max_pct: 50, idle_pct: 2, at: 48k/64, slice: x86_64-rosetta, preset: Track mode with 200 ms window }
+cpu_reference_machine: Apple M3 Pro (Björn's Mac)
+instances_expected: 4-8 per project (kit mics, DI and amp, piano pair), 1-2 in the live-stream rig
+latency_budget: equals the Window (0, 5, 20, 50 or 200 ms), reported; Delay never changes it
+sample_rates: [44100, 48000, 88200, 96000, 176400, 192000]
+channels: stereo with a stereo sidechain input
+register: n/a (effect)
+register_intent: n/a
+presets:
+  bank_size: 8
+  categories: [Drums, Guitar and Bass, Keys, Vocals, Live]
+  reference_chord: n/a; test material is a multi-mic drum loop, a DI/amp pair and a room pair with 1.2 s RT60
+  loudness_window: n/a
+  edge_presets: [Room Mics Wide Window, Live Stream Zero Latency, Kick In vs Overheads]
+  naming: English, by source pair ("Kick In vs Overheads", "Bass DI vs Amp")
+mix_context: on the spot mic, reference mic in the sidechain; changes timing and low-end phase only
+quality_targets:
+  alias_floor_db:     { target: n/a, method: n/a }
+  thd_n_db:           { target: null at neutral settings, method: harness null after latency compensation }
+  response_error_db:  { target: "fractional delay flat within 0.05 dB to 18 kHz", method: impulse through 0.37 ms delay, FFT }
+  loudness:           { target: n/a, method: n/a }
+  keyboard_span_lu:   { target: n/a, method: n/a }
+  low_register:       { target: "Rotate suggestion raises low-band correlation by >= 0.05 or says none needed", method: kick-in/overheads pair test }
   other:
-open_questions:
+    - "accuracy: 2.317 ms inverted found within 0.02 ms on the drum loop; within 0.1 ms on the reverberant pair"
+    - "latency: reported equals measured (Plugalyzer) for each Window"
+    - "click: Track sweeping 2 ms over 1 s on a 1 kHz sine, no sample above peak + 0.01 dB"
+    - "Detect under 200 ms on the reference machine"
+open_questions: []
 ```
 
 ## Amendments
-- <date>: <what changed, why, which gates re-open>
+- 2026-11-01: Owner decisions confirmed with the brief: Window includes 0 (live) with zero latency and positive delay only; Group alignment is Tier F, P ships sidechain only; Detect proposes Rotate and Below, Apply accepts. LookAndFeel and meters come from the shared Source/oberli/ code (bob-skills).
