@@ -50,6 +50,8 @@ public:
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     void processBlockBypassed (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    using juce::AudioProcessor::processBlock;            // the double overloads stay visible
+    using juce::AudioProcessor::processBlockBypassed;    // (the base class asserts if one is used)
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -116,6 +118,16 @@ public:
 
     /** What Track mode currently adds to Delay, in ms (never written to the parameter). */
     float trackOffsetMs() const noexcept { return trackOffset.load (std::memory_order_relaxed); }
+
+    /** The rate the analysis rings and the detector run at: the session rate decimated to land in
+        [44.1, 48] kHz, so the worker's FFT stays bounded (AnalysisRing.h). */
+    double analysisRate() const noexcept { return engine.inputRing().rate(); }
+
+    /** How much audio the rings hold right now, in seconds at the analysis rate. */
+    double analysisSecondsAvailable() const noexcept
+    {
+        return (double) engine.inputRing().available() / juce::jmax (1.0, engine.inputRing().rate());
+    }
 
 private:
     class Worker;

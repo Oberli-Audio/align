@@ -154,6 +154,9 @@ const char* const kUsage =
     "  --gate=<s>                   instruments: note-off at t seconds (default: held to the end)\n"
     "  --bend=<t>:<v>[,...]  --mod=<t>:<v>[,...]   pitch wheel (-1..1) and mod wheel (0..1) at t\n"
     "  --in=<file.wav> | --signal=impulse|logsweep|sine:<Hz>:<dBFS>|noise:pink:<dBFS>|silence   effects: the input\n"
+    "  --sidechain=<file.wav> | --sidechain-signal=<spec>   the reference bus (product extension)\n"
+    "  --detect-at=<t>              press Detect at t seconds, wait for the worker, apply; repeatable\n"
+    "  --detect-timeout=<ms>        how long to wait for a detect result (default 2000)\n"
     "  --out=<file.wav>             write the output (float32)\n"
     "  --state-in=<file> --state-out=<file>   plugin state (any bytes in; a refused blob exits 2)\n"
     "  --reprepare-at=<t>:<rate>/<block>      prepareToPlay again mid-render; repeatable\n"
@@ -184,7 +187,12 @@ Args parseArgs (int argc, char* argv[])
 {
     static const juce::StringArray known { "help", "seed", "sample-rate", "block", "max-block", "seconds", "preset", "param",
         "automate", "bend", "mod", "notes", "midi", "gate", "reprepare-at", "in", "signal", "out", "state-in", "state-out",
-        "profile", "preset-at", "warmup", "solo", "list-params", "list-presets" };
+        "profile", "preset-at", "warmup", "solo", "list-params", "list-presets",
+        // Align's product extensions. The contract (v3) has no sidechain bus and no way to press a
+        // momentary parameter and wait for a background result, and this product cannot be measured
+        // without either: the reference mic *is* the sidechain, and Detect *is* a worker thread.
+        // Documented in DEVELOPING.md beside the contract rather than invented silently.
+        "sidechain", "sidechain-signal", "detect-at", "detect-timeout" };
     Args a;
     for (int i = 1; i < argc; ++i)
     {
@@ -446,7 +454,7 @@ static bool applySolo (juce::AudioProcessor&, const juce::String& part)
     return false;   // unknown part: refused with exit 2
 }
 
-static juce::var productMetrics (const juce::AudioBuffer<float>&, double)
+static juce::var productMetrics (const juce::AudioBuffer<float>&, double)   // unused: see run()
 {
     return obj();
 }
@@ -502,10 +510,14 @@ static int run (int argc, char* argv[])
 
     const bool isInstrument = PRODUCT_IS_INSTRUMENT != 0;
     const int inChannels = isInstrument ? 0 : 2;
+    const bool hasSidechain = processor->getBusCount (true) > 1;
     juce::AudioProcessor::BusesLayout layout;
     if (! isInstrument) layout.inputBuses.add (juce::AudioChannelSet::stereo());
+    if (hasSidechain) layout.inputBuses.add (juce::AudioChannelSet::stereo());
     layout.outputBuses.add (juce::AudioChannelSet::stereo());
     if (! processor->setBusesLayout (layout)) refuse ("the processor refuses the stereo layout");
+    const int totalIn = isInstrument ? 0 : (hasSidechain ? 4 : 2);
+    const int workChannels = juce::jmax (2, totalIn);
     processor->setNonRealtime (false);
     processor->prepareToPlay (rate, maxBlock);
 
@@ -603,6 +615,34 @@ static int run (int argc, char* argv[])
     else if (! isInstrument)
         signal.kind = "impulse";
 
+    Signal side;
+    side.rng.seed ((unsigned) seed + 1u);
+    if (args.has ("sidechain"))
+    {
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (juce::File::getCurrentWorkingDirectory().getChildFile (args.get ("sidechain"))));
+        if (reader == nullptr) refuse ("cannot read --sidechain " + args.get ("sidechain"));
+        side.kind = "file";
+        side.file.setSize ((int) reader->numChannels, (int) reader->lengthInSamples);
+        reader->read (&side.file, 0, (int) reader->lengthInSamples, 0, true, true);
+    }
+    else if (args.has ("sidechain-signal"))
+    {
+        auto parts = juce::StringArray::fromTokens (args.get ("sidechain-signal"), ":", "");
+        side.kind = parts[0];
+        if (side.kind == "sine") { if (parts.size() > 1) side.hz = numberOr (parts[1], "--sidechain-signal"); if (parts.size() > 2) side.dbfs = numberOr (parts[2], "--sidechain-signal"); }
+        else if (side.kind == "noise") { if (parts.size() > 2) side.dbfs = numberOr (parts[2], "--sidechain-signal"); }
+        else if (side.kind != "impulse" && side.kind != "logsweep" && side.kind != "silence") refuse ("unknown --sidechain-signal " + args.get ("sidechain-signal"));
+    }
+
+    std::vector<double> detectAts;
+    for (auto spec : args.all ("detect-at"))
+        detectAts.push_back (numberOr (spec, "--detect-at"));
+    std::sort (detectAts.begin(), detectAts.end());
+    const int detectTimeoutMs = (int) numberOr (args.get ("detect-timeout", "2000"), "--detect-timeout");
+    size_t nextDetect = 0;
+    juce::var detectLog;
+
     // -------- mid-render events
     struct Reprepare { double t; double rate; int block; };
     std::vector<Reprepare> reprepares;
@@ -639,7 +679,7 @@ static int run (int argc, char* argv[])
     int midiFileIndex = 0;
     juce::int64 pos = 0;
     juce::int64 total = (juce::int64) std::llround (seconds * rate);
-    juce::AudioBuffer<float> work (2, maxBlock);
+    juce::AudioBuffer<float> work (workChannels, maxBlock);
     juce::MidiBuffer midi;
 
     while (pos < total)
@@ -651,7 +691,7 @@ static int run (int argc, char* argv[])
             const double remaining = seconds - now;
             rate = r.rate; maxBlock = r.block; if (! randomBlocks) block = r.block;
             total = pos + (juce::int64) std::llround (remaining * rate);
-            work.setSize (2, maxBlock, false, false, true);
+            work.setSize (workChannels, maxBlock, false, false, true);
             processor->prepareToPlay (rate, maxBlock);   // no releaseResources: pluginval's non-releasing case
         }
         while (nextPreset < presetAts.size() && presetAts[nextPreset].t <= now)
@@ -691,8 +731,21 @@ static int run (int argc, char* argv[])
                 midi.addEvent (ev->message, at);
             }
         }
-        juce::AudioBuffer<float> blockBuf (work.getArrayOfWritePointers(), 2, n);
-        if (inChannels > 0) signal.fill (blockBuf, pos, rate); else blockBuf.clear();
+        juce::AudioBuffer<float> blockBuf (work.getArrayOfWritePointers(), workChannels, n);
+        if (inChannels > 0)
+        {
+            juce::AudioBuffer<float> mainView (work.getArrayOfWritePointers(), 2, n);
+            signal.fill (mainView, pos, rate);
+            if (hasSidechain)
+            {
+                juce::AudioBuffer<float> sideView (work.getArrayOfWritePointers() + 2, 2, n);
+                side.fill (sideView, pos, rate);
+            }
+        }
+        else
+        {
+            blockBuf.clear();
+        }
 
         const auto t0 = Clock::now();
         processBlockRealtime (*processor, blockBuf, midi);
@@ -713,6 +766,44 @@ static int run (int argc, char* argv[])
         out.setSize (2, had + n, true, false, true);
         for (int ch = 0; ch < 2; ++ch) out.copyFrom (ch, had, blockBuf, ch, 0, n);
         pos += n;
+
+        // --detect-at: press Detect the way a host would, then let the worker finish. A console app
+        // runs no message loop, so applyPendingDetect() is called directly - the same function the
+        // processor's AsyncUpdater calls in a host (docs/status.md, G1 threads decision).
+        while (nextDetect < detectAts.size() && detectAts[nextDetect] <= (double) pos / rate)
+        {
+            const double at = detectAts[nextDetect++];
+            const int before = product->detectSequence();
+            if (auto* detectParam = apvts.getParameter ("detect"))
+            {
+                detectParam->setValueNotifyingHost (1.0f);
+                const bool arrived = product->waitForDetect (before, detectTimeoutMs);
+                product->applyPendingDetect();
+                const auto r = product->lastDetect();
+                auto entry = obj();
+                set (entry, "at_seconds", at);
+                set (entry, "arrived", arrived);
+                set (entry, "ok", r.ok);
+                set (entry, "words", align::dsp::Detector::words (r));
+                set (entry, "delay_ms", (double) r.delayMs);
+                set (entry, "inverted", r.inverted);
+                set (entry, "confidence_pct", (double) r.confidencePct);
+                set (entry, "distance_cm", (double) r.distanceCm);
+                set (entry, "peak", (double) r.peak);
+                set (entry, "second_peak", (double) r.secondPeak);
+                auto sug = obj();
+                set (sug, "needed", r.suggestion.needed);
+                set (sug, "rotate_deg", (double) r.suggestion.rotateDeg);
+                set (sug, "below_hz", (double) r.suggestion.belowHz);
+                set (sug, "corr_before", (double) r.suggestion.corrBefore);
+                set (sug, "corr_after", (double) r.suggestion.corrAfter);
+                set (sug, "other_mic", r.suggestion.otherMic);
+                set (sug, "other_mic_gain", (double) r.suggestion.otherMicGain);
+                set (sug, "words", align::dsp::Detector::suggestionWords (r.suggestion));
+                set (entry, "suggestion", sug);
+                detectLog.append (entry);
+            }
+        }
     }
     processor->releaseResources();
 
@@ -729,7 +820,13 @@ static int run (int argc, char* argv[])
         auto file = juce::File::getCurrentWorkingDirectory().getChildFile (args.get ("out"));
         file.deleteFile();
         juce::WavAudioFormat wav;
-        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (new juce::FileOutputStream (file), rate, 2, 32, {}, 0));
+        std::unique_ptr<juce::OutputStream> stream = std::make_unique<juce::FileOutputStream> (file);
+        auto writer = wav.createWriterFor (stream,
+                                           juce::AudioFormatWriterOptions {}
+                                               .withSampleRate (rate)
+                                               .withNumChannels (2)
+                                               .withBitsPerSample (32)
+                                               .withSampleFormat (juce::AudioFormatWriterOptions::SampleFormat::floatingPoint));
         if (writer == nullptr || ! writer->writeFromAudioSampleBuffer (out, 0, out.getNumSamples())) refuse ("cannot write --out " + file.getFullPathName());
     }
 
@@ -814,7 +911,21 @@ static int run (int argc, char* argv[])
         set (pr, "first_block_pct", firstBlockPct); set (pr, "warmup_blocks", warmup);
         set (root, "profile", pr);
     }
-    set (root, "product", productMetrics (out, rate));
+    {
+        // Align's `product` object: what Detect found, what Rotate was suggested, and the two
+        // numbers the editor shows. The detect log is the real content; productMetrics() stays as
+        // the template left it so the contract's hook is still where the next product looks.
+        auto prod = productMetrics (out, rate);
+        if (! prod.isObject()) prod = obj();
+        set (prod, "detects", detectLog);
+        set (prod, "sidechain", hasSidechain ? juce::var (side.kind) : juce::var());
+        set (prod, "sidechain_connected", product->sidechainConnected());
+        set (prod, "correlation", (double) product->correlation());
+        set (prod, "track_offset_ms", (double) product->trackOffsetMs());
+        set (prod, "analysis_rate", product->analysisRate());
+        set (prod, "analysis_seconds_available", product->analysisSecondsAvailable());
+        set (root, "product", prod);
+    }
     std::cout << juce::JSON::toString (root, true) << std::endl;
 
     if (stateRefused.isNotEmpty()) { std::cerr << "error: --state-in " << stateRefused << std::endl; return 2; }

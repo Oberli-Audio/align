@@ -157,7 +157,7 @@ public:
         {
             const float cr = cross[(size_t) (2 * k)], ci = cross[(size_t) (2 * k + 1)];
             const float mag = std::sqrt (cr * cr + ci * ci);
-            const float scale = kWhitenBeta == 1.0f ? 1.0f / (mag + eps)
+            const float scale = juce::exactlyEqual (kWhitenBeta, 1.0f) ? 1.0f / (mag + eps)
                                                     : 1.0f / std::pow (mag + eps, kWhitenBeta);
             cross[(size_t) (2 * k)] = cr * scale;
             cross[(size_t) (2 * k + 1)] = ci * scale;
@@ -206,7 +206,7 @@ public:
         const float yp = std::abs (at (bestLag + 1));
         float delta = 0.0f, vertex = y0;
         const float denom = ym - 2.0f * y0 + yp;
-        if (denom != 0.0f)
+        if (! juce::exactlyEqual (denom, 0.0f))
         {
             delta = juce::jlimit (-1.0f, 1.0f, 0.5f * (ym - yp) / denom);
             vertex = y0 - 0.25f * (ym - yp) * delta;

@@ -80,7 +80,7 @@ public:
     {
         if (numSamples <= 0)
             return;
-        if (! fading && target != current)
+        if (! fading && ! juce::exactlyEqual (target, current))
         {
             previous = current;
             fading = true;
@@ -186,7 +186,7 @@ private:
 
         const int whole = (int) std::floor (delay);
         const double frac = delay - (double) whole;
-        if (frac == 0.0)
+        if (juce::exactlyEqual (frac, 0.0))
             return r[(size_t) wrap (write - whole)];
 
         const auto* row = &table[(size_t) (int) std::lround (frac * kPhases) * kTaps];

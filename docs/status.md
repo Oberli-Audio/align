@@ -34,8 +34,8 @@ Newest first; one line each. Everything else keeps moving.
 
 ## Handoff
 Task: build Align to Tier P from G1. Plan: 1. [x] G1 families and departures 2. [x] G2 numpy
-prototype, 16 checks, renders 3. [ ] **G4 port - in progress, paused mid-way** 4. [ ] harness
-sidechain bus, `--detect-at`, product metrics 5. [ ] `tools/tests/test_plugin.py` 6. [ ] G3
+prototype, 16 checks, renders 3. [x] G4 port, build green 4. [x] harness
+sidechain bus, `--detect-at`, product metrics 5. [ ] `tools/tests/test_plugin.py` (next) 6. [ ] G3
 measurement scripts and the metric table 7. [ ] G5 null vs the prototype 8. [ ] G6 validate (the
 part that runs off a Mac) 9. [ ] G7 documents.
 
@@ -47,22 +47,35 @@ rewritten around them: the stereo sidechain aux bus, cached parameter atomics, t
 thread, the `AsyncUpdater` that writes delay and polarity as one host edit, `applyRotateSuggestion`
 for the Apply button, Track mode, and the correlation meter.
 
-Build: `Align_VST3` compiles clean. `AlignHarness` has **not** been compiled against the new code
-yet - the one attempt failed only because `JuceLibraryCode/JucePluginDefines.h` had not been
-generated, which building the plugin target first fixes; that is the next command. Nothing in the
-port has been run or measured yet, so none of its numbers are in this document. The G2 numbers
-above are the **prototype's**, not the port's.
+Build: **green**, warning-free. `cmake --build --preset release -j4` builds `Align_VST3`,
+`Align_Standalone` and `AlignHarness`. The harness runs the real processor with a sidechain:
+`AlignHarness --signal=impulse --sidechain-signal=noise:pink:-20 --seconds=0.5 --block=64`
+reports latency 960 samples at the default Window, peak 0.0 dBFS through the impulse, no NaN, and
+`product.sidechain_connected: true`.
 
-Still to write before anything can be measured: the harness needs a `--sidechain=<file.wav>` /
-`--sidechain-signal=<spec>` pair for the reference bus (the contract has no sidechain, so this is a
-documented product extension), a `--detect-at=<t>` that sets the Detect parameter like a host and
-then calls `applyPendingDetect()` (a console app runs no message loop), and a `product` object
-carrying the detect result, the suggestion and the readout.
+Two things had to be fixed to get there, both worth knowing: `juce_add_plugin` puts the
+`JucePlugin_*` definitions on the plugin target only, and this harness compiles the product
+sources itself, so the two the sources use are repeated in the harness target from the same single
+sources CMake already has; and the eight deliberate exact float comparisons in `Source/dsp/` now
+say so with `juce::exactlyEqual`, which is what `-Wfloat-equal` is asking for.
 
-Working tree: clean. Tests: not registered yet (the harness has to link first).
+Harness extensions, documented because the contract (v3) has neither: `--sidechain=<file.wav>` and
+`--sidechain-signal=<spec>` fill the reference bus; `--detect-at=<t>` presses Detect the way a host
+would, waits for the worker and calls `applyPendingDetect()` directly, because a console app runs
+no message loop; `--detect-timeout=<ms>` bounds that wait. The `product` object carries a `detects`
+log (the result, the readout in words, the suggestion), plus the correlation, the Track offset and
+the analysis rate.
+
+Nothing in the port has been **measured** yet - no G3 battery, no G5 null. The G2 numbers above
+are the **prototype's**, not the port's.
+
+Still to write: `tools/tests/test_plugin.py` from the kit's `test_template.py`, the `tools/measure/`
+scripts that fill the G3 metric table, and the G5 null against the prototype's seeded renders.
+
+Working tree: clean. Tests: not registered yet.
 Open questions for the owner: the "Waiting for Björn" lines above; two of them are decisions
 (Rotate's re-parameterisation, the asymmetric Delay clamp).
-Next command: `cmake --build --preset release -j4` (plugin first, then the harness)
+Next command: `ctest --preset fast` (once `tools/tests/test_plugin.py` exists)
 
 ## Decisions
 - 2026-11-01: **G1 family - estimator.** GCC-PHAT (generalised cross-correlation with the phase

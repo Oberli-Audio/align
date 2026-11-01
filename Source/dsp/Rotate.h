@@ -87,7 +87,7 @@ public:
             return;
         const float targetMix = active ? 1.0f : 0.0f;
         const float step = (targetMix - mix) / (float) fadeLength;
-        const bool fading = mix != targetMix;
+        const bool fading = ! juce::exactlyEqual (mix, targetMix);
 
         for (int ch = 0; ch < channels; ++ch)
         {

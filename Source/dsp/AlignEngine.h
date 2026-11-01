@@ -169,7 +169,7 @@ public:
         // polarity, crossfaded. A polarity crossfade passes through silence; that is what a
         // polarity switch is, and being amplitude-complementary it cannot overshoot.
         const float polarityTarget = params.polarity ? 1.0f : 0.0f;
-        if (polarityMix != polarityTarget)
+        if (! juce::exactlyEqual (polarityMix, polarityTarget))
         {
             const float step = (polarityTarget - polarityMix) / (float) polarityFade;
             const float lo = juce::jmin (polarityMix, polarityTarget);
@@ -209,7 +209,7 @@ public:
 
         // Bypass: crossfade to the latency-compensated dry path
         const float bypassWanted = bypassTarget ? 1.0f : 0.0f;
-        if (bypassMix != bypassWanted || bypassWanted > 0.5f)
+        if (! juce::exactlyEqual (bypassMix, bypassWanted) || bypassWanted > 0.5f)
         {
             const float step = (bypassWanted - bypassMix) / (float) bypassFade;
             const float lo = juce::jmin (bypassMix, bypassWanted);
@@ -236,7 +236,7 @@ public:
         target[juce::jlimit (0, 2, params.listen)] = 1.0f;
         bool fading = false;
         for (int s = 0; s < 3; ++s)
-            fading = fading || listenMix[s] != target[s];
+            fading = fading || ! juce::exactlyEqual (listenMix[s], target[s]);
         if (! fading && target[0] > 0.5f)
             return;                                   // Listen Off and settled: nothing to mix
 
