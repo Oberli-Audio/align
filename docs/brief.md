@@ -65,9 +65,11 @@ open_questions: []
 
 ## Amendments
 - 2026-11-01: Owner decisions confirmed with the brief: Window includes 0 (live) with zero latency and positive delay only; Group alignment is Tier F, P ships sidechain only; Detect proposes Rotate and Below, Apply accepts. LookAndFeel and meters come from the shared Source/oberli/ code (bob-skills).
-- 2026-11-01 (G1, pending owner confirmation - see docs/status.md "Waiting for Björn"): Rotate is
-  realised as a quadrature rotation of the low band (band + its +90 deg Hilbert) with a
-  magnitude-compensating bell at Below, not as the sketch's second-order all-pass, which cannot
-  hold an arbitrary angle at the low end. Delay is clamped to [-Window, +200 ms]: the negative
-  side is the latency the Window buys, the positive side costs buffer only. Detect searches
-  [-Window, +max(Window, 20 ms)], so it never proposes a delay the current Window cannot apply.
+- 2026-11-01 (G1, pending owner confirmation - see docs/status.md "Waiting for Björn"): Rotate
+  keeps the sketch's all-pass but is parameterised by its corner, `f_c = Below / tan(Rotate/4)`,
+  so Rotate is exactly the phase shift at Below (180 deg puts the corner on Below). Magnitude is
+  exactly flat and the stage adds no latency; the angle is reached *at* Below rather than held
+  below it, and the low end can only be moved later, never earlier. Delay is clamped to
+  [-Window, +200 ms]: the negative side is the latency the Window buys, the positive side costs
+  buffer only. Detect searches [-Window, +max(Window, 20 ms)], so it never proposes a delay the
+  current Window cannot apply.
