@@ -1,0 +1,26 @@
+# Oberli Audio toolchain of THIS machine: ~/.config/oberli/tools.toml (or $OBERLI_TOOLS).
+# Paths only, nothing secret; the repos never carry machine paths. Read by toolchain.py
+# (`env`, `get`, `check`), validate_plugin.py (pluginval when $PLUGINVAL is unset), the CMake
+# presets through `eval "$(python3 scripts/dsp-kit/toolchain.py env)"`, and registry.py.
+# An empty string means "not on this machine"; a set path must exist (`toolchain.py check`).
+
+[llvm]
+root = "/opt/homebrew/opt/llvm"            # Homebrew LLVM 20+ with RealtimeSanitizer (Apple clang has none); the rtsan preset
+
+[faust]
+faust = "/opt/homebrew/bin/faust"          # the Faust compiler for the G2 prototype
+
+[pluginval]
+app = "/Applications/pluginval.app/Contents/MacOS/pluginval"   # the signed download, pinned 1.0.4
+asan = "~/Developer/pluginval-asan/Builds/asan/pluginval_artefacts/Release/pluginval.app/Contents/MacOS/pluginval"   # built from source with ASan (D.1.6)
+tsan = ""                                   # built from source with TSan (Tier F)
+
+[validator]
+vst3sdk = ""                                # a VST3 SDK checkout; empty: validate_plugin.py builds it into build-validators/
+
+[hosts]
+ableton_live_mac = "/Applications/Ableton Live 10 Suite.app"   # under Rosetta: the x86_64 slice
+windows = ""                                # no Windows machine in reach: a friend runs the second host
+
+[registry]
+plugins = "~/bob-skills/plugins/ship-bob/skills/ship-bob/registry/plugins.toml"

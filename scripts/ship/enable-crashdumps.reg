@@ -1,0 +1,10 @@
+Windows Registry Editor Version 5.00
+
+; Horizon Pad / Oberli Audio: let Windows keep a minidump when Ableton Live crashes.
+; Double-click once as administrator. Dumps land in %LOCALAPPDATA%\CrashDumps (newest file = the crash).
+; Undo: delete the LocalDumps key. Source: feedback-loop.md 5, Microsoft "Collecting User-Mode Dumps".
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps]
+"DumpFolder"=hex(2):25,00,4c,00,4f,00,43,00,41,00,4c,00,41,00,50,00,50,00,44,00,41,00,54,00,41,00,25,00,5c,00,43,00,72,00,61,00,73,00,68,00,44,00,75,00,6d,00,70,00,73,00,00,00
+"DumpCount"=dword:00000005
+"DumpType"=dword:00000001

@@ -1,0 +1,145 @@
+# {{Product}}: build on macOS (universal) and Windows, run the fast suite and the validators on
+# every push; a v* tag adds the release assets (ship-bob templates/release.yml: ad-hoc signed
+# zips, symbols, provenance, checksums, a draft GitHub Release). The format set is ship.toml's:
+# the staging loops below take every bundle that exists.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-14
+            generator: Ninja
+            generator_args: ""
+          - name: Windows
+            os: windows-2022
+            generator: "Visual Studio 17 2022"
+            generator_args: "-A x64"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Python packages for the suite
+        run: python -m pip install numpy scipy
+      - name: Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+      - name: Cache FetchContent (JUCE)
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: ${{ runner.os }}-${{ matrix.generator }}-fetchcontent-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.generator }}-fetchcontent-
+      - name: Configure (the release preset's settings)
+        run: >
+          cmake -B build -G "${{ matrix.generator }}" ${{ matrix.generator_args }}
+          -DCMAKE_BUILD_TYPE=Release -DPRODUCT_RELEASE_SYMBOLS=ON
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+          "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
+      - name: Build
+        run: cmake --build build --config Release --target {{ProductId}}_VST3 {{ProductId}}Harness
+      - name: Fast suite and lints
+        shell: bash
+        run: ctest --test-dir build -C Release -L fast --output-on-failure
+      - name: Validators (Steinberg validator, pluginval quick)
+        shell: bash
+        run: >
+          python scripts/dsp-kit/validate_plugin.py --profile quick --only validator,pluginval --no-build --fetch-pluginval --strict
+          --plugin "build/{{ProductId}}_artefacts/Release/VST3/{{Product}}.vst3" --out validation-logs
+      - name: Upload validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: "validation-logs-${{ matrix.name }}", path: validation-logs }
+
+      # ---- release assets on a tag (ship-bob release-recipe.md step 3) ----
+      - name: Sign ad-hoc, stage, zip, symbols, provenance (macOS)
+        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cd build/{{ProductId}}_artefacts/Release
+          rm -rf stage symbols && mkdir -p stage symbols
+          for b in VST3/*.vst3 AU/*.component CLAP/*.clap; do
+            [ -e "$b" ] || continue
+            xattr -cr "$b"
+            codesign --force --sign - "$b"
+            codesign --verify --deep --strict --verbose=2 "$b"
+            lipo -archs "$b/Contents/MacOS/"*
+            cp -R "$b" stage/
+          done
+          cp "$GITHUB_WORKSPACE/LICENSE" "$GITHUB_WORKSPACE/THIRD_PARTY_NOTICES.md" stage/
+          ditto -c -k --norsrc --noextattr stage "$GITHUB_WORKSPACE/{{ProductId}}-macOS.zip"
+          find . -maxdepth 2 -name "*.dSYM" -not -path "./symbols/*" -exec cp -R {} symbols/ \;
+          ls symbols
+          ditto -c -k --norsrc --noextattr symbols "$GITHUB_WORKSPACE/{{ProductId}}-symbols-macOS.zip"
+          python3 "$GITHUB_WORKSPACE/scripts/ship/buildinfo.py" emit --repo "$GITHUB_WORKSPACE" --build "$GITHUB_WORKSPACE/build" \
+            --platform macos --symbols symbols/*.dSYM --out "$GITHUB_WORKSPACE/build-info-macOS.json"
+          python3 "$GITHUB_WORKSPACE/scripts/ship/buildinfo.py" check "$GITHUB_WORKSPACE/build-info-macOS.json" \
+            --expect-version "${GITHUB_REF_NAME#v}" --platform macos
+      - name: Zip the bundle folders, symbols, provenance (Windows)
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $A = "build/{{ProductId}}_artefacts/Release"
+          $bundles = @("$A/VST3/{{Product}}.vst3") + (Get-ChildItem "$A/CLAP/*.clap" -ErrorAction SilentlyContinue).FullName
+          Compress-Archive -Path ($bundles + "LICENSE", "THIRD_PARTY_NOTICES.md") -DestinationPath {{ProductId}}-Windows-x64.zip
+          $pdbs = Get-ChildItem $A -Recurse -Filter *.pdb
+          if (-not $pdbs) { throw "no PDB: the release build must keep symbols (PRODUCT_RELEASE_SYMBOLS)" }
+          Compress-Archive -Path $pdbs.FullName -DestinationPath {{ProductId}}-symbols-Windows.zip
+          Copy-Item scripts/ship/enable-crashdumps.reg .
+          python scripts/ship/buildinfo.py emit --repo . --build build --platform windows --symbols $pdbs.FullName --out build-info-Windows.json
+          python scripts/ship/buildinfo.py check build-info-Windows.json --expect-version $env:GITHUB_REF_NAME.Substring(1) --platform windows
+      - name: Upload release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: |
+            {{ProductId}}-*.zip
+            build-info-*.json
+            enable-crashdumps.reg
+          if-no-files-found: error
+
+  release:
+    name: Draft release (tags only)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums by basename
+        run: |
+          cd dist
+          for f in *.zip; do [ -f "$f" ] && sha256sum "$f"; done > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Assets are what the README promises
+        run: python3 scripts/ship/shipcheck.py release-assets dist --repo .
+      - name: Release notes from the changelog
+        run: python3 scripts/ship/shipcheck.py changelog-section . > dist/RELEASE_NOTES.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          body_path: dist/RELEASE_NOTES.md
+          files: |
+            dist/*.zip
+            dist/enable-crashdumps.reg
+            dist/SHA256SUMS.txt
+            dist/build-info-*.json

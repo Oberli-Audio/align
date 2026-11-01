@@ -1,0 +1,73 @@
+# Build output (every CMake preset builds into build or build-<preset>)
+build/
+build-*/
+cmake-build-*/
+out/
+_deps/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.pdb
+*.exp
+*.ilk
+*.vst3/
+*.component/
+*.clap/
+*.au/
+
+# JUCE is fetched by CMake into the build tree; never committed
+JUCE/
+JuceLibraryCode/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake_install.cmake
+compile_commands.json
+install_manifest.txt
+
+# IDEs, editors, OS
+.vs/
+.vscode/
+.idea/
+.cache/
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python
+__pycache__/
+*.pyc
+
+# Release assets CI writes into the checkout (a release is built from a clean tree)
+/{{ProductId}}-*.zip
+/build-info-*.json
+/SHA256SUMS.txt
+/RELEASE_NOTES.md
+/enable-crashdumps.reg
+/dist/
+
+# Machine-local: the toolchain is ~/.config/oberli/tools.toml, never in the repo
+/ship.local.toml
+/.env
+
+# Sample material, renders and listening-panel files live in OneDrive, not in git
+/sound design/renders/
+/sound design/panel/
+*.wav
+!tests/golden/*.wav
+*.aif
+*.aiff
+*.mp3
+*.m4a

@@ -1,0 +1,4 @@
+id,version_added,type,kind,name,short,group,core,unit,min,max,default,centre,bipolar,choices,steps,format_kind,precision,parse_aliases,automatable,smoothing,smoothing_domain,control_rate,meaning,tooltip,notes
+mix,1,float,plain,Mix,Mix,Output,Y,%,0,100,100,,N,,0,percent,0,,Y,20,linear,block,dry / balanced / wet,Dry to wet balance (equal power),
+outGain,1,float,plain,Output,Out,Output,Y,dB,-24,12,0,,Y,,0,db,1,,Y,20,db,block,quiet / unity / loud,Output level after the mix,
+bypass,1,bool,bypass,Bypass,Bypass,Output,N,,0,1,0,,N,,2,bool,0,,Y,0,crossfade,event,,Bypass the plugin (latency compensated),

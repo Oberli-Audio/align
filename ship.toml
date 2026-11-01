@@ -1,0 +1,17 @@
+[product]
+name = "{{Product}}"              # bundle name
+slug = "{{slug}}"                 # folder names; the tag stays v<VERSION> (one repo per plugin)
+asset_name = "{{ProductId}}"      # version-free asset names: {{ProductId}}-macOS.zip, {{ProductId}}-Windows-x64.zip
+repo = "{{Repo}}"                 # GitHub owner/repo
+formats = ["VST3"]                # the shipped set; add "AU" or "CLAP" when the product wants them (the CMake FORMATS line follows)
+
+[macos]
+deployment_target = "10.13"
+
+[windows]
+runtime = "MT"
+arch = "SSE4.2"
+
+[release]
+sound_changed = false             # true: the changelog section must carry a "Sounds different:" line
+state_version_bumped = false      # true: ... and "will not open in older versions"; the message says so

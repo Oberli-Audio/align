@@ -1,0 +1,28 @@
+# Third-party manifest: ship-bob notices.py generates THIRD_PARTY_NOTICES.md from this file and
+# checks it against CMakeLists.txt (ship-bob references/notices.md). Never edit the generated
+# file; a new dependency, font or Faust function is an entry here first. The template bundles
+# no font: plugin-ui-bob adds Rubik (OFL-1.1) with the real editor at G2, as an entry here.
+
+[check]
+cmake = ["CMakeLists.txt"]
+ignore = []
+
+[[component]]
+name = "JUCE"
+kind = "framework"
+version = "8.0.16"
+spdx = "LicenseRef-JUCE-8-EULA"
+copyright = "Raw Material Software Limited"
+url = "https://juce.com"
+note = "Built with JUCE under the JUCE 8 End User Licence Agreement, Starter tier, fetched by commit at build time with one local fix to its VST3 wrapper (a bounds check, cmake/PatchJuce.cmake), and not redistributed. JUCE's own copyright notices are retained in the binary; the SDKs and libraries inside JUCE are listed in its JUCE.spdx.json."
+
+[[component]]
+name = "VST 3 SDK"
+kind = "sdk"
+version = "3.8.0"
+spdx = "MIT"
+copyright = "Steinberg Media Technologies GmbH"
+url = "https://github.com/steinbergmedia/vst3sdk"
+license_file = "LICENSES/MIT.txt"
+note = "The copy bundled inside JUCE 8.0.16. VST is a registered trademark of Steinberg Media Technologies GmbH."
+cmake = "vst3sdk"

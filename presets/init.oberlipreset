@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<OberliPreset name="Init" author="Oberli Audio" category="Bed"
+              description="The parameter table's defaults."
+              pluginVersion="0.1.0" created="{{Date}}" factory="true">
+  <{{ProductId}}State version="1" dspVersion="1">
+    <PARAMETERS>
+{{InitParams}}
+    </PARAMETERS>
+    <Extra/>
+  </{{ProductId}}State>
+</OberliPreset>

@@ -1,0 +1,66 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "release",
+      "displayName": "Release (what ships)",
+      "description": "ship-bob versioning-and-provenance.md: universal on macOS, /MT and /arch:SSE4.2 on Windows, LTO, symbols beside the binary (dSYM, PDB), the shipped binary stripped. The workflow and release.py use this preset only.",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "10.13",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>",
+        "PRODUCT_RELEASE_SYMBOLS": "ON"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug (a debugger only; about 6x the audio-thread time of Release)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "CMAKE_OSX_ARCHITECTURES": "arm64" }
+    },
+    {
+      "name": "asan",
+      "displayName": "ASan + UBSan (release gate, D.1.6)",
+      "description": "The plugin and the harness with -fsanitize=address,undefined (PRODUCT_ASAN). RelWithDebInfo, arm64 only, no LTO. pluginval must be built from source with ASan for this slice: tools.toml pluginval.asan.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-asan",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "CMAKE_OSX_ARCHITECTURES": "arm64", "PRODUCT_ASAN": "ON" }
+    },
+    {
+      "name": "tsan",
+      "displayName": "TSan (Tier F)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-tsan",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "CMAKE_OSX_ARCHITECTURES": "arm64", "PRODUCT_TSAN": "ON" }
+    },
+    {
+      "name": "rtsan",
+      "displayName": "RealtimeSanitizer (rule 1)",
+      "description": "The harness with -fsanitize=realtime from the Homebrew LLVM named in ~/.config/oberli/tools.toml: run `eval \"$(python3 scripts/dsp-kit/toolchain.py env)\"` first so LLVM_ROOT is set. Apple clang has no RTSan.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-rtsan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_C_COMPILER": "$env{LLVM_ROOT}/bin/clang",
+        "CMAKE_CXX_COMPILER": "$env{LLVM_ROOT}/bin/clang++",
+        "PRODUCT_RTSAN": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "release", "configurePreset": "release", "configuration": "Release", "targets": [ "{{ProductId}}_VST3", "{{ProductId}}_Standalone", "{{ProductId}}Harness" ] },
+    { "name": "debug", "configurePreset": "debug", "targets": [ "{{ProductId}}_VST3", "{{ProductId}}Harness" ] },
+    { "name": "asan", "configurePreset": "asan", "targets": [ "{{ProductId}}_VST3", "{{ProductId}}Harness" ] },
+    { "name": "tsan", "configurePreset": "tsan", "targets": [ "{{ProductId}}_VST3", "{{ProductId}}Harness" ] },
+    { "name": "rtsan", "configurePreset": "rtsan", "targets": [ "{{ProductId}}Harness" ] }
+  ],
+  "testPresets": [
+    { "name": "fast", "configurePreset": "release", "filter": { "include": { "label": "fast" } }, "output": { "outputOnFailure": true } },
+    { "name": "all", "configurePreset": "release", "output": { "outputOnFailure": true } }
+  ]
+}
