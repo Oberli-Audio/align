@@ -1,6 +1,6 @@
 # Align - automatic phase alignment (Tier S sketch)
 
-Tier S, gate G0-G2 sketch. Oberli Audio effect, Bone theme, accent saffron #F6BF26 (jade: A B see, iris: Less S, mango: Horizon Pad; check the Design System artifact). Static frame: `align@1x.png` (880 x 600 at 100 %), `align@2x.png` for Retina viewing. Sound side: sound-design-bob is needed for the correlation estimator, the fractional delay and the all-pass; this sketch states what the DSP must do and the evidence that proves it.
+Tier S, gate G0-G2 sketch. Oberli Audio effect, Bone theme, accent Sage #33B679 (mix tools, category scheme confirmed 2026-11-01). Static frame: `align@1x.png` (880 x 600 at 100 %), `align@2x.png` for Retina viewing. Sound side: sound-design-bob is needed for the correlation estimator, the fractional delay and the all-pass; this sketch states what the DSP must do and the evidence that proves it.
 
 ## 1. G0 brief
 
@@ -32,7 +32,7 @@ Tier S, gate G0-G2 sketch. Oberli Audio effect, Bone theme, accent saffron #F6BF
 
 1. **Window** 880 x 600 at 100 %, Bone, compact; two display wells side by side.
 2. **Hero** is what the ear cannot judge: the correlation curve with the found peak (a downward peak means the polarity is flipped, and the display shows it as such) and the summed spectrum before (dashed) and after (ink), where the comb notches vanish. The numbers under Detect say it in words: "Peak +2.31 ms · 79 cm · polarity flipped · confidence 94 %".
-3. **Accent** saffron on the set and active only: Delay's value arc and pointer, the Detect primary button, lit LEDs, selected segments, the found-peak marker. The correlation meter is ink.
+3. **Accent** Sage on the set and active only: Delay's value arc and pointer, the Detect primary button, lit LEDs, selected segments, the found-peak marker. The correlation meter is ink.
 4. **Sections** in signal-flow order from the table's groups: Align, Rotate, the displays (Correlation, Sum, no parameters), Group (one row with a drawer), Output (Trim 64 px, correlation and level meters; no Mix knob: utility plugin without a wet path, the line the A B see sketch proposes for the brand sheet).
 5. **States**: suggestion (the Rotate section shows the proposed value and an Apply secondary button after a Detect; after Apply the button disappears and the knobs carry the value), modified (pill dims), drawer (presets from the left; the Group drawer from the right, 380 px, lists the instances of the group with name, delay, polarity, confidence, reference marker and "Align group"), About (charcoal page), bypass, no sidechain (Detect disabled, the readout says "Route the reference mic into the sidechain input", correlation well empty), detecting (a hairline progress under the Detect button, 200 ms), Track mode (the Delay knob moves on its own and shows a small `mod`-coloured ring segment for the tracked offset around the user's base value, so the user sees what Track adds), Listen Ref or Sum (header pill shows "Listening: Ref" / "Sum" in `ink-subtle`).
 
@@ -133,7 +133,7 @@ in ──► polarity ──► fractional delay (Window + Delay) ──► all-
 
 ## 7. Open decisions for Björn
 - Decided 2026-11-01: name Align (slug `align`, plugin ID `Align`).
-- Accent: saffron proposed.
+- Accent: Sage #33B679, by the category scheme (decided 2026-11-01): one accent per category, mix tools.
 - Decided 2026-11-01: Window gets "0 (live)" (zero latency, positive delay only) for the live-stream mix; Group is Tier F, P ships sidechain only.
 - Decided 2026-11-01: Detect proposes Rotate and Below with the measured low-band gain; Apply accepts it.
 
