@@ -27,33 +27,25 @@ public:
     {
         while (! threadShouldExit())
         {
-            if (owner.detectRequested.exchange (false, std::memory_order_acquire))
+            // a request stays pending while the audio thread holds the detector (offline Track)
+            if (owner.detectRequested.load (std::memory_order_acquire) && owner.tryClaimAnalysis())
+            {
+                owner.detectRequested.store (false, std::memory_order_relaxed);
                 owner.runDetectOnce (false);
-            else if (trackDue())
+                owner.releaseAnalysis();
+            }
+            else if (owner.trackRequested.load (std::memory_order_acquire) && owner.tryClaimAnalysis())
+            {
+                owner.trackRequested.store (false, std::memory_order_relaxed);
                 owner.runDetectOnce (true);
+                owner.releaseAnalysis();
+            }
             wait (kWorkerPollMs);
         }
     }
 
 private:
-    bool trackDue()
-    {
-        const bool tracking = owner.modeParam != nullptr && owner.modeParam->load() >= 0.5f;
-        const bool held = owner.holdParam != nullptr && owner.holdParam->load() >= 0.5f;
-        if (! tracking || held)
-        {
-            nextTrack = 0;
-            return false;
-        }
-        const auto now = juce::Time::getMillisecondCounter();
-        if (nextTrack != 0 && now < nextTrack)
-            return false;
-        nextTrack = now + (juce::uint32) kTrackIntervalMs;
-        return true;
-    }
-
     AlignAudioProcessor& owner;
-    juce::uint32 nextTrack = 0;
 };
 
 //==============================================================================
@@ -119,6 +111,9 @@ void AlignAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     rmsR.store (0.0f);
     correlationValue.store (0.0f);
     trackOffset.store (0.0f);
+    trackIntervalSamples = juce::jmax ((juce::int64) 1, (juce::int64) std::llround (kTrackIntervalMs * 1.0e-3 * sampleRate));
+    samplesToNextTrack = 0;
+    trackRequested.store (false);
 }
 
 void AlignAudioProcessor::releaseResources() {}
@@ -231,6 +226,7 @@ void AlignAudioProcessor::render (juce::AudioBuffer<float>& buffer, juce::MidiBu
     }
 
     engine.process (mainPointers, haveSide ? sidePointers : nullptr, channels, numSamples, bypassed);
+    scheduleTrack (numSamples);
 
     // meters, taken after everything so they tell the truth (F.9, stage order)
     float lastL = 0.0f, lastR = 0.0f;
@@ -261,6 +257,37 @@ void AlignAudioProcessor::parameterChanged (const juce::String& id, float value)
         requestDetect();
 }
 
+void AlignAudioProcessor::scheduleTrack (int numSamples) noexcept
+{
+    // audio time, not wall time: the estimate falls at the first block boundary after every
+    // kTrackIntervalMs of audio, the first one as soon as Track is switched on
+    const bool tracking = modeParam != nullptr && modeParam->load() >= 0.5f;
+    const bool held = holdParam != nullptr && holdParam->load() >= 0.5f;
+    if (! tracking || held)
+    {
+        samplesToNextTrack = 0;
+        trackRequested.store (false, std::memory_order_relaxed);
+        return;
+    }
+    samplesToNextTrack -= numSamples;
+    if (samplesToNextTrack > 0)
+        return;
+    samplesToNextTrack = juce::jmax ((juce::int64) 1, samplesToNextTrack + trackIntervalSamples);
+    if (isNonRealtime())
+    {
+        // offline: here and now, so a bounce is reproducible (rule 8). Allocation- and lock-free.
+        if (tryClaimAnalysis())
+        {
+            runDetectOnce (true);
+            releaseAnalysis();
+        }
+    }
+    else
+    {
+        trackRequested.store (true, std::memory_order_release);
+    }
+}
+
 void AlignAudioProcessor::runDetectOnce (bool tracking)
 {
     auto& inRing = engine.inputRing();
@@ -281,11 +308,13 @@ void AlignAudioProcessor::runDetectOnce (bool tracking)
                       (int) std::lround (windowParam->load()))];
     if (tracking)
     {
-        // Track searches a narrow range around the value in use, and never touches Polarity: a
-        // polarity change mid-take is always wrong (sketch 4.3).
+        // Track searches a narrow range around the delay in use, and never touches Polarity: a
+        // polarity change mid-take is always wrong (sketch 4.3). The rings hold the input before
+        // the delay, so the detector answers in absolute Delay, and so is the range asked for;
+        // only the offset handed to the engine is relative to the parameter.
         const float base = delayParam->load() + trackOffset.load (std::memory_order_relaxed);
-        loMs = juce::jmax (-windowMs, base - kTrackSearchMs) - delayParam->load();
-        hiMs = juce::jmin (align::dsp::AlignEngine::kDelayMaxMs, base + kTrackSearchMs) - delayParam->load();
+        loMs = juce::jmax (-windowMs, base - kTrackSearchMs);
+        hiMs = juce::jmin (align::dsp::AlignEngine::kDelayMaxMs, base + kTrackSearchMs);
         loMs = juce::jmin (loMs, hiMs - 0.1f);
     }
     else
@@ -308,7 +337,7 @@ void AlignAudioProcessor::runDetectOnce (bool tracking)
     if (tracking)
     {
         const float tau = std::exp (-kTrackIntervalMs / kTrackTauMs);
-        const float target = result.delayMs;
+        const float target = result.delayMs - delayParam->load();
         const float now = trackOffset.load (std::memory_order_relaxed);
         trackOffset.store (target + tau * (now - target), std::memory_order_relaxed);
         return;

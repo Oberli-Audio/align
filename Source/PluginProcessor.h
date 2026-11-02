@@ -20,6 +20,13 @@
         owns every buffer the detector uses (allocated in prepareToPlay) and publishes its result
         behind an atomic sequence counter. Polling rather than signalling keeps the audio thread's
         side of the handshake to one relaxed atomic store.
+      - **Track mode** is scheduled in *audio* time: every kTrackIntervalMs of audio the audio thread
+        raises a request (one relaxed store) and the worker serves it. Offline (isNonRealtime(),
+        a bounce) the audio thread runs the estimate itself at that sample position - the detector
+        allocates nothing and the Track path takes no lock (rule 1), and a bounce then renders the
+        same every time and does not depend on how fast the host renders (rule 8; docs/failures.md
+        2026-11-03). `analysisBusy` is a try-claim on the detector's buffers, never a wait: whoever
+        does not get it skips that turn.
       - the **message thread** writes the parameters, through an AsyncUpdater, with
         begin/perform/endChangeGesture, so the host records one edit and the editor's knobs move.
 
@@ -136,6 +143,13 @@ private:
     void parameterChanged (const juce::String& id, float value) override;
     void handleAsyncUpdate() override;
     void runDetectOnce (bool tracking);
+    void scheduleTrack (int numSamples) noexcept;
+    bool tryClaimAnalysis() noexcept
+    {
+        bool expected = false;
+        return analysisBusy.compare_exchange_strong (expected, true, std::memory_order_acquire);
+    }
+    void releaseAnalysis() noexcept { analysisBusy.store (false, std::memory_order_release); }
     align::dsp::AlignEngine::Params currentParams() const noexcept;
 
     juce::AudioProcessorValueTreeState apvts;
@@ -161,6 +175,9 @@ private:
     int reportedLatency = 0;
 
     std::atomic<bool> detectRequested { false };
+    std::atomic<bool> trackRequested { false };
+    std::atomic<bool> analysisBusy { false };   // the detector and its frames: worker or (offline) audio thread
+    juce::int64 trackIntervalSamples = 12000, samplesToNextTrack = 0;   // audio thread only
     std::atomic<bool> pendingApply { false };
     std::atomic<int>  resultSequence { 0 };
     std::atomic<float> trackOffset { 0.0f };

@@ -816,13 +816,16 @@ static int run (int argc, char* argv[])
             const int before = product->detectSequence();
             if (auto* detectParam = apvts.getParameter ("detect"))
             {
+                const double pressedAt = juce::Time::getMillisecondCounterHiRes();
                 detectParam->setValueNotifyingHost (1.0f);
                 const bool arrived = product->waitForDetect (before, detectTimeoutMs);
+                const double elapsedMs = juce::Time::getMillisecondCounterHiRes() - pressedAt;   // press to result, the worker's poll included
                 product->applyPendingDetect();
                 const auto r = product->lastDetect();
                 auto entry = obj();
                 set (entry, "at_seconds", at);
                 set (entry, "arrived", arrived);
+                set (entry, "elapsed_ms", elapsedMs);
                 set (entry, "ok", r.ok);
                 set (entry, "words", align::dsp::Detector::words (r));
                 set (entry, "delay_ms", (double) r.delayMs);

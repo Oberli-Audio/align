@@ -406,6 +406,26 @@ class Path_(Timed):
                     r = K.null_residual(want[s0: len(x) - lat], renders[512][s0 + lat:], align=False)
                     self.assertLess(r["peak_dbfs"], -140.0, "%s never lands on its target (%.1f dBFS)" % (name, r["peak_dbfs"]))
 
+    def test_track_follows_a_step_and_bounces_reproducibly(self):           # failures.md 2026-11-03, rule 8, G1 Track
+        """Track was scheduled in wall-clock time, so an offline bounce re-estimated at whatever pace
+        the host rendered (two identical renders ended 0.4 ms apart), and it treated the detector's
+        absolute lag as its offset (a 1.5 ms step settled at -3.7 ms). Offline it now runs in audio
+        time on the audio thread: two bounces are one render, and the offset goes where the pair went."""
+        fs = 48000
+        loop = np.tile(M.drum_loop(fs, 1), 2)
+        ref = M._tilt(loop, fs, 400.0, 0.55, 1.0)
+        at = int(4.0 * fs)
+        trk = np.concatenate([M.fractional_shift(ref.copy(), 2.317e-3 * fs)[:at],
+                              M.fractional_shift(ref.copy(), 3.817e-3 * fs)[at:]])     # 1.5 ms later after 4 s
+        n = int(7.0 * fs)
+        params = {"delay": n_delay(-2.317), "mode": 1.0}
+        with tempfile.TemporaryDirectory() as d:
+            ra, ya = render_pair(d, ref[:n], trk[:n], fs, params, non_realtime=1)
+            rb, yb = render_pair(d, ref[:n], trk[:n], fs, params, non_realtime=1)
+        self.assertTrue((ya == yb).all(), "two offline Track renders differ")
+        off = ra["product"]["track_offset_ms"]
+        self.assertAlmostEqual(off, -1.5, delta=0.2, msg="3 s after a 1.5 ms step Track sits at %.3f ms" % off)
+
     def test_mono_in_stays_mono(self):                                     # rule 15 by construction
         fs = 48000
         x = M.pink_noise(fs, 1.0, seed=7) * 0.3
