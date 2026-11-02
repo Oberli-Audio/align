@@ -21,7 +21,7 @@ public:
     void resized() override;
 
 private:
-    AlignAudioProcessor& processor;
+    AlignAudioProcessor& alignProcessor;
     juce::TooltipWindow tooltips { this, 500 };
     struct Control
     {

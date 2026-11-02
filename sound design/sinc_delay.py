@@ -155,8 +155,10 @@ class SincDelay:
                 out[ch] = self._read(ch, positions, self._cur)
             return out
 
-        # amplitude-complementary ramp from the old tap to the target, possibly spanning blocks
-        step = np.arange(n) + self._fade_pos
+        # amplitude-complementary ramp from the old tap to the target, possibly spanning blocks; the
+        # first sample is already one step in and the fade's last sample is the target alone, as in
+        # SincDelay.h (it once started on the old tap and ended a step short, then jumped 1/L)
+        step = np.arange(n) + self._fade_pos + 1
         a = np.clip(1.0 - step / self._fade_len, 0.0, 1.0)
         out = np.empty_like(block)
         for ch in range(channels):

@@ -3,6 +3,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include "AnalysisRing.h"
+#include "Fade.h"
 #include "Rotate.h"
 #include "SincDelay.h"
 
@@ -38,6 +39,10 @@ public:
     static constexpr float kBypassFadeMs = 15.0f;
     static constexpr float kRotateTauMs = 20.0f;
     static constexpr float kBelowTauMs = 20.0f;
+    // Rotate and Below move the all-passes' coefficient, so they advance on a control grid of
+    // this period, fixed to the stream (rule 2: sub-blocks of at most 32 samples; 7 at 44.1 kHz,
+    // 31 at 192 kHz). Neither the smoothing time nor the output depends on the host's block size.
+    static constexpr float kControlMs = 0.16f;
 
     struct Params
     {
@@ -64,8 +69,8 @@ public:
         inRing.prepare (sampleRate);
         refRing.prepare (sampleRate);
         monoScratch.setSize (2, maxBlock, false, false, true);
-        polarityFade = juce::jmax (1, (int) std::lround (kPolarityFadeMs * 1.0e-3 * sampleRate));
-        bypassFade = juce::jmax (1, (int) std::lround (kBypassFadeMs * 1.0e-3 * sampleRate));
+        polarityFade.prepare ((int) std::lround (kPolarityFadeMs * 1.0e-3 * sampleRate), params.polarity ? 1.0f : 0.0f);
+        bypassFade.prepare ((int) std::lround (kBypassFadeMs * 1.0e-3 * sampleRate), 0.0f);
         // Bypass has to be latency-compensated, click-free and null against the input (rule 7), so
         // the dry path runs through its own whole-sample delay of exactly the reported latency and
         // the two are crossfaded. The chain keeps running while bypassed, so coming back out of
@@ -73,10 +78,12 @@ public:
         const int dry = (int) std::ceil ((double) kWindowMs[kNumWindows - 1] * 1.0e-3 * sampleRate) + 2;
         for (auto& r : dryRing)
             r.assign ((size_t) dry, 0.0f);
-        listenFade = juce::jmax (1, (int) std::lround (kListenFadeMs * 1.0e-3 * sampleRate));
+        for (int s = 0; s < 3; ++s)
+            listenFade[s].prepare ((int) std::lround (kListenFadeMs * 1.0e-3 * sampleRate), 0.0f);
         trimCoefficient = tauCoefficient (kTrimTauMs, sampleRate);
-        rotateCoefficient = tauCoefficient (kRotateTauMs, sampleRate);
-        belowCoefficient = tauCoefficient (kBelowTauMs, sampleRate);
+        controlPeriod = juce::jlimit (1, 32, (int) std::lround (kControlMs * 1.0e-3 * sampleRate));
+        rotateCoefficient = tauCoefficient (kRotateTauMs, sampleRate / controlPeriod);
+        belowCoefficient = tauCoefficient (kBelowTauMs, sampleRate / controlPeriod);
         trimSmoothed = juce::Decibels::decibelsToGain (params.trimDb);
         rotateSmoothed = params.rotateDeg;
         belowSmoothed = params.belowHz;
@@ -94,16 +101,17 @@ public:
         rotateStage.reset();
         inRing.reset();
         refRing.reset();
-        polarityMix = params.polarity ? 1.0f : 0.0f;
+        polarityFade.snap (params.polarity ? 1.0f : 0.0f);
         for (auto& r : dryRing)
             std::fill (r.begin(), r.end(), 0.0f);
         dryWrite = 0;
-        bypassMix = 0.0f;
+        bypassFade.snap (0.0f);
         for (int s = 0; s < 3; ++s)
-            listenMix[s] = s == juce::jlimit (0, 2, params.listen) ? 1.0f : 0.0f;
+            listenFade[s].snap (s == juce::jlimit (0, 2, params.listen) ? 1.0f : 0.0f);
         trimSmoothed = juce::Decibels::decibelsToGain (params.trimDb);
         rotateSmoothed = params.rotateDeg;
         belowSmoothed = params.belowHz;
+        controlCountdown = 0;
     }
 
     void setParams (const Params& p) noexcept
@@ -168,23 +176,17 @@ public:
 
         // polarity, crossfaded. A polarity crossfade passes through silence; that is what a
         // polarity switch is, and being amplitude-complementary it cannot overshoot.
-        const float polarityTarget = params.polarity ? 1.0f : 0.0f;
-        if (! juce::exactlyEqual (polarityMix, polarityTarget))
+        polarityFade.setTarget (params.polarity ? 1.0f : 0.0f);
+        if (! polarityFade.idle())
         {
-            const float step = (polarityTarget - polarityMix) / (float) polarityFade;
-            const float lo = juce::jmin (polarityMix, polarityTarget);
-            const float hi = juce::jmax (polarityMix, polarityTarget);
-            float m = polarityMix;
             for (int i = 0; i < numSamples; ++i)
             {
-                m = juce::jlimit (lo, hi, m + step);
-                const float g = 1.0f - 2.0f * m;
+                const float g = 1.0f - 2.0f * polarityFade.next();
                 for (int ch = 0; ch < channels; ++ch)
                     main[ch][i] *= g;
             }
-            polarityMix = m;
         }
-        else if (polarityTarget > 0.5f)
+        else if (polarityFade.value > 0.5f)
         {
             for (int ch = 0; ch < channels; ++ch)
                 juce::FloatVectorOperations::multiply (main[ch], -1.0f, numSamples);
@@ -192,11 +194,7 @@ public:
 
         delayLine.process (main, numSamples);
 
-        rotateSmoothed = (double) params.rotateDeg + rotateCoefficient * (rotateSmoothed - params.rotateDeg);
-        belowSmoothed = (double) params.belowHz + belowCoefficient * (belowSmoothed - params.belowHz);
-        rotateStage.setParams (params.rotateDeg > 0.0f ? rotateSmoothed : 0.0,
-                               belowSmoothed, params.rotateDeg > 0.0f);
-        rotateStage.process (main, numSamples);
+        processRotate (main, channels, numSamples);
 
         const double trimTarget = juce::Decibels::decibelsToGain (params.trimDb);
         for (int i = 0; i < numSamples; ++i)
@@ -208,16 +206,12 @@ public:
         }
 
         // Bypass: crossfade to the latency-compensated dry path
-        const float bypassWanted = bypassTarget ? 1.0f : 0.0f;
-        if (! juce::exactlyEqual (bypassMix, bypassWanted) || bypassWanted > 0.5f)
+        bypassFade.setTarget (bypassTarget ? 1.0f : 0.0f);
+        if (! bypassFade.idle() || bypassFade.value > 0.5f)
         {
-            const float step = (bypassWanted - bypassMix) / (float) bypassFade;
-            const float lo = juce::jmin (bypassMix, bypassWanted);
-            const float hi = juce::jmax (bypassMix, bypassWanted);
-            float m = bypassMix;
             for (int i = 0; i < numSamples; ++i)
             {
-                m = juce::jlimit (lo, hi, m + step);
+                const float m = bypassFade.next();
                 int at = dryStart + i - dryDelay;
                 while (at < 0)
                     at += drySize;
@@ -226,32 +220,25 @@ public:
                 for (int ch = 0; ch < channels; ++ch)
                     main[ch][i] = (1.0f - m) * main[ch][i] + m * dryRing[(size_t) ch][(size_t) at];
             }
-            bypassMix = m;
-            if (bypassMix >= 1.0f)
+            if (bypassFade.idle())
                 return;                              // fully bypassed: Listen must not touch it
         }
 
         // Listen: a three-way crossfade, so switching never clicks
-        float target[3] = { 0.0f, 0.0f, 0.0f };
-        target[juce::jlimit (0, 2, params.listen)] = 1.0f;
         bool fading = false;
         for (int s = 0; s < 3; ++s)
-            fading = fading || ! juce::exactlyEqual (listenMix[s], target[s]);
-        if (! fading && target[0] > 0.5f)
+        {
+            listenFade[s].setTarget (s == juce::jlimit (0, 2, params.listen) ? 1.0f : 0.0f);
+            fading = fading || ! listenFade[s].idle();
+        }
+        if (! fading && listenFade[0].value > 0.5f)
             return;                                   // Listen Off and settled: nothing to mix
 
-        float start[3], step[3];
-        for (int s = 0; s < 3; ++s)
-        {
-            start[s] = listenMix[s];
-            step[s] = (target[s] - listenMix[s]) / (float) listenFade;
-        }
         for (int i = 0; i < numSamples; ++i)
         {
             float m[3];
             for (int s = 0; s < 3; ++s)
-                m[s] = juce::jlimit (juce::jmin (start[s], target[s]), juce::jmax (start[s], target[s]),
-                                     start[s] + step[s] * (float) (i + 1));
+                m[s] = listenFade[s].next();
             float wetSum = 0.0f, refSum = 0.0f;
             for (int ch = 0; ch < channels; ++ch)
             {
@@ -264,13 +251,52 @@ public:
                 const float refCh = ref != nullptr ? ref[ch][i] : 0.0f;
                 main[ch][i] = m[0] * main[ch][i] + m[1] * refCh + m[2] * mono;
             }
-            if (i == numSamples - 1)
-                for (int s = 0; s < 3; ++s)
-                    listenMix[s] = m[s];
         }
     }
 
 private:
+    /** Rotate on the control grid (kControlMs). Once both smoothers sit on their targets the
+        coefficient cannot move inside the block (parameters change only between blocks), so the
+        block runs in one piece and the grid position is carried forward. */
+    void processRotate (float* const* main, int channels, int numSamples) noexcept
+    {
+        const bool settled = juce::exactlyEqual (rotateSmoothed, (double) params.rotateDeg)
+                          && juce::exactlyEqual (belowSmoothed, (double) params.belowHz)
+                          && rotateStage.settled (params.rotateDeg > 0.0f);
+        if (settled)
+        {
+            rotateStage.process (main, channels, numSamples);
+            controlCountdown = ((controlCountdown - numSamples) % controlPeriod + controlPeriod) % controlPeriod;
+            return;
+        }
+        float* chunk[2] {};
+        for (int at = 0; at < numSamples;)
+        {
+            if (controlCountdown <= 0)
+            {
+                rotateSmoothed = smoothTowards (rotateSmoothed, (double) params.rotateDeg, rotateCoefficient, 1.0e-4);
+                belowSmoothed = smoothTowards (belowSmoothed, (double) params.belowHz, belowCoefficient, 1.0e-4);
+                rotateStage.setParams (params.rotateDeg > 0.0f ? rotateSmoothed : 0.0,
+                                       belowSmoothed, params.rotateDeg > 0.0f);
+                controlCountdown = controlPeriod;
+            }
+            const int k = juce::jmin (controlCountdown, numSamples - at);
+            for (int ch = 0; ch < channels; ++ch)
+                chunk[ch] = main[ch] + at;
+            rotateStage.process (chunk, channels, k);
+            controlCountdown -= k;
+            at += k;
+        }
+    }
+
+    /** One step of a one-pole towards `target`; lands on it exactly once within `snap`, so a
+        settled stage is recognisable and the angle reached is the one asked for. */
+    static double smoothTowards (double value, double target, double coefficient, double snap) noexcept
+    {
+        const double next = target + coefficient * (value - target);
+        return std::abs (next - target) <= snap ? target : next;
+    }
+
     static double tauCoefficient (double tauMs, double sampleRate) noexcept
     {
         return tauMs <= 0.0 ? 0.0 : std::exp (-1.0 / (tauMs * 1.0e-3 * sampleRate));
@@ -285,8 +311,8 @@ private:
     double rate = 48000.0;
     double trimSmoothed = 1.0, rotateSmoothed = 0.0, belowSmoothed = 120.0;
     double trimCoefficient = 0.0, rotateCoefficient = 0.0, belowCoefficient = 0.0;
-    float polarityMix = 0.0f, bypassMix = 0.0f;
-    float listenMix[3] { 1.0f, 0.0f, 0.0f };
-    int maxBlock = 512, latency = 0, polarityFade = 1, listenFade = 1, bypassFade = 1, dryWrite = 0;
+    LinearFade polarityFade, bypassFade, listenFade[3];
+    int controlPeriod = 1, controlCountdown = 0;
+    int maxBlock = 512, latency = 0, dryWrite = 0;
 };
 } // namespace align::dsp

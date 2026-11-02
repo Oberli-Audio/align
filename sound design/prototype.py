@@ -95,7 +95,7 @@ def check_rotate_structure(fs: float = 48000.0) -> dict:
             stage = rotate_stage.Rotate()
             stage.prepare(fs)
             stage.set_params(theta, below)
-            stage._mix = 1.0                      # measure the stage itself, not the crossfade
+            stage.fade.snap(1.0)                      # measure the stage itself, not the crossfade
             y = stage.process_block(imp.copy())
             spec = np.fft.rfft(y[0], n)
             measured = np.unwrap(np.angle(spec))
@@ -124,7 +124,7 @@ def check_rotate_structure(fs: float = 48000.0) -> dict:
         st = rotate_stage.Rotate()
         st.prepare(fs)
         st.set_params(48.0, 120.0)
-        st._mix = 1.0
+        st.fade.snap(1.0)
         y = np.empty_like(x)
         for at in range(0, n2, 256):
             y[:, at:at + 256] = st.process_block(x[:, at:at + 256].copy())

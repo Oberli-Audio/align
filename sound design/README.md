@@ -13,6 +13,7 @@ Every module is in the structure `Source/dsp/` will mirror, so G5 can null the p
 |---|---|---|
 | `material.py` | - | seeded test material, and the exact FFT fractional shift that *defines* the truth |
 | `sinc_delay.py` | `SincDelay.h` | the fractional delay line: kernel table, two taps, crossfade |
+| `fade.py` | `Fade.h` | the one crossfade law every switch uses (lands exactly, block-size independent) |
 | `rotate.py` | `Rotate.h` | the low-end phase rotation: two first-order TPT all-passes |
 | `detector.py` | `Detector.h/.cpp` | GCC-PHAT, the readout, the Rotate suggestion |
 | `engine.py` | `AlignEngine.h` | the audio path, the latency and clamp rules, the analysis rings |

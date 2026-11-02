@@ -1,25 +1,25 @@
-# Status - Align 0.1.0 (2026-11-01)
-Tier P, track E (effect), at gate G2 closed, G3 next. Recipe D.8.1.
+# Status - Align 0.1.0 (2026-11-03)
+Tier P, track E (effect), at gate G3 (measure) in progress; G4 rebuilt on the Mac, G5's null closed. Recipe D.8.1.
 
 ## Waiting for Björn
 Newest first; one line each. Everything else keeps moving.
+- 2026-11-03: **Two DSP defects found and fixed at G3** (docs/failures.md): Rotate/Below glided for seconds and depended on the buffer size; every switch's crossfade stalled short of its target in float32 (Polarity sat at gain -0.99998). Both were in the prototype too; G2's 16 checks pass again after the fix. Nothing to decide, but the G2 listening A/B should be regenerated before you listen (`python3 "sound design/prototype.py" --renders`).
+- 2026-11-03: **This Mac's CMake finds Homebrew's Python 3.12, which has no numpy/scipy**, so the suite was not registered. Configured with `cmake --preset release -DPython3_EXECUTABLE=/usr/bin/python3` (the CLT 3.9 that has them). Either `pip3 install numpy scipy` into Homebrew's Python or keep the flag; a machine fact, so not in the repo.
 - 2026-11-01: **Rotate is re-parameterised, confirm the words.** The structure stays the sketch's all-pass, but Rotate moves the *corner* (`f_c = Below / tan(Rotate/4)`) instead of a Q, because a second-order all-pass's phase swing is always 360 deg and only the corner can place a chosen angle at a chosen frequency. Rotate is then exactly "the phase shift at Below": 180 deg puts the corner on Below, as the sketch drew it. Two consequences for the words plugin-ui-bob owns: Below's tooltip "The frequency under which Rotate acts" is better read as "The frequency at which Rotate's angle is reached"; and Rotate turns the band *around* Below rather than everything below it (the phase is 0 at DC, -Rotate at Below, and back to 0 - as -360 deg - above roughly 10 x the corner). Rotate only ever makes the low end arrive *later*: a causal filter cannot advance it, so when the low end has to go the other way the pair is aligned from the other mic.
 - 2026-11-01: **Delay clamp is asymmetric, confirm.** Internal delay = Window + clamp(Delay, -Window, +200 ms); the positive side is not clamped to the Window. A symmetric clamp would pin Delay to 0 at Window "0 (live)", which the sketch's own 2026-11-01 decision ("zero latency, positive delay only") forbids (G1 decision 6).
-- 2026-11-01: **Shared `Source/oberli/` is not in the repo or in plugin-template.** LookAndFeel, Strip frame, meters, Loudness, Analysis/FFT, References, RenderSafety. The editor stays the template stub; DSP, harness and tests go on. Refresh `Source/oberli/` from plugin-template and wire the editor when it lands.
 - 2026-11-01: **Two new rows for `dsp-selection.md` in bob-skills** (S.0: a family that is not in the tables is added afterwards). Text in Decisions below; never edited from this repo.
 - 2026-11-01: **Test material.** The multi-mic drum loop, the DI/amp pair and the 1.2 s RT60 room pair live in OneDrive, not in git. The prototype and the suite use synthetic material (`sound design/material.py`, seeded); the brief's accuracy numbers on *real* material need those files once.
 - 2026-11-01: **Listening checkpoint after G3** (init patch and the first presets, level-matched renders).
-- 2026-11-01: **Host checks and the macOS/Windows half of the release gate** cannot run in this cloud container: pluginval, Steinberg validator, auval, Plugalyzer, RTSan (needs LLVM 20+ clang), `perf.py` on the x86_64 slice, Live 10.1 under Rosetta, Live on Windows. CI (`.github/workflows/build.yml`) runs the validators on macOS and Windows on push.
 
 ## Gates
 | Gate | State | Evidence (command -> number, test name, log) |
 |---|---|---|
 | G0 | closed 2026-11-01 | `docs/brief.md` owner-confirmed, from `docs/sketch.md`; `parameters.csv` in the repo |
 | G1 | closed 2026-11-01 | families chosen against the brief with `dsp-selection.md` S.2/S.4/S.5; three departures, each with the measurement that would reject it (Decisions) |
-| G2 | closed 2026-11-01 | numpy prototype in the port's structure (`sound design/`, README there says why not Faust); `python3 "sound design/prototype.py" --all --kernel-search --seed 1` -> 16/16 checks pass, `sound design/g2.json`. Accuracy: drum loop 0.0049 ms worst over all six rates (target 0.02), confidence 92.5 % worst (target > 80); room pair 1.2 s RT60 0.0083 ms (target 0.1); bass DI/amp 0.055 ms (reverberant tolerance, see the check). Fractional delay 0.00023 dB to 18 kHz at 48 k, 0.00088 dB at 44.1 k (target 0.05), delay error 4.9e-6 ms. Rotate: magnitude 8.9e-14 dB, measured phase vs the analytic curve 1.8e-12 deg, TPT vs direct form -308 dBFS. Null at Delay 0 / Polarity off / Rotate 0: bit-identical at Window 0 **and** after compensating Window 20 ms. Reported latency = measured, 0 samples error, every Window. Two runs from reset bit-identical. Block size changes nothing (-300 dBFS) over 6 rates x {0,1,13,32,64,512,4096,9000}. Track sweep overshoot 0.000000 dB (target 0.01). Comb notch at 215.8 Hz: -41.5 dB -> -0.8 dB. **Listening checkpoint open** (Waiting for Björn) |
-| G3 | open | next: the harness's sidechain bus, `tools/measure/` on `dspkit.render()`, the metric table |
-| G4 | - | clean Release build with the ported DSP; `cmake --build --preset release` |
-| G5 | - | null vs the prototype; bank loudness-matched (`presetlint.py`) |
+| G2 | closed 2026-11-01, re-run 2026-11-03 | `python3 "sound design/prototype.py" --all --kernel-search --seed 1` -> 16/16 pass after the two fixes (`sound design/g2.json`). Unchanged to the last digits: accuracy (drum loop 0.0049 ms worst over six rates, confidence 92.5 % worst; room pair 0.0083 ms; DI/amp 0.055 ms), fractional delay 0.00088 dB to 18 kHz, Rotate structure, nulls, latency, block sizes (-312 dBFS), comb notch. Moved: Rotate's switch-in overshoot 0.040 -> 0.072 dB (it now really glides in 20 ms; the click criterion, max_click within +1 dB of the sine's own -17.69 dB, holds at -17.74). **Listening checkpoint open** |
+| G3 | in progress | `ctest --preset fast` -> 9/9 (suite_fast 27 tests, harness_contract, parameter_table, bounce_null, preset_bank, the shared code's four), 51 s. `ctest --test-dir build -L render` -> suite_render 3 pass, goldens skipped (none yet), 25 s. The suite (`tools/tests/test_plugin.py`) asserts on the port: latency = impulse = Window at all five Windows; null at Delay 0 / Polarity off / Rotate 0 below -140 dBFS at every Window; bypass nulls against the compensated input; Window 0 has zero latency and no negative delay; fractional delay flat within 0.05 dB to 18 kHz at 44.1 and 48 k; Rotate magnitude within 0.05 dB and phase at Below within 1 deg at three settings; mono stays mono; Delay sweep overshoot <= 0.01 dB; Detect on the drum loop within 0.02 ms, flipped, > 80 % at all six rates; room pair within 0.1 ms; DI/amp within 0.1 ms; comb notch < -10 dB before Detect and > -1.5 dB after. **Next: `tools/measure/g3_metrics.py` to print the metric table's numbers (the tests assert thresholds, the table needs the values)**, Detect time, CPU on the x86_64 slice |
+| G4 | rebuilt 2026-11-03 | `cmake --preset release && cmake --build --preset release` on the Mac (universal, LTO): green, no warnings in project code |
+| G5 | null closed 2026-11-03; bank open | `python3 tools/measure/g5_null.py --rates all` -> 36/36 within -100 dBFS (F.8: float with IIR state), worst peak -120.9 dBFS, latency equal in every case; six settings x six rates, the prototype's `reference_renders` list. Bank loudness-matching waits for the bank (Init only so far) |
 | G6 | - | `validate_plugin.py full`, `paramgen.py check --frozen`, `presetlint.py render --tier P`, hosts |
 | G7 | - | bank and table final, documents current, release gate green, then ship-bob |
 
@@ -28,56 +28,61 @@ Newest first; one line each. Everything else keeps moving.
   `sound design/renders/g2_listen_ab_misaligned_then_aligned.wav` (the *sum* of the pair: four bars
   combed, half a second of silence, four bars aligned, level-matched - the processed track alone is
   inaudible by itself). Regenerate with `python3 "sound design/prototype.py" --renders`.
+- 2026-11-03: the port has not been heard either; the Standalone and the VST3 are built
+  (`build/Align_artefacts/Release/`), the editor is still the template stub.
 
 ## Open exceptions
 - none yet.
 
 ## Handoff
 Task: build Align to Tier P from G1. Plan: 1. [x] G1 families and departures 2. [x] G2 numpy
-prototype, 16 checks, renders 3. [x] G4 port, build green 4. [x] harness
-sidechain bus, `--detect-at`, product metrics 5. [ ] `tools/tests/test_plugin.py` (next) 6. [ ] G3
-measurement scripts and the metric table 7. [ ] G5 null vs the prototype 8. [ ] G6 validate (the
-part that runs off a Mac) 9. [ ] G7 documents.
+prototype, 16 checks, renders 3. [x] G4 port, build green 4. [x] harness sidechain bus,
+`--detect-at`, product metrics 5. [x] `tools/tests/test_plugin.py` 6. [ ] G3 metric table
+(`tools/measure/g3_metrics.py`, next) 7. [x] G5 null vs the prototype 8. [ ] presets (8, the
+brief's categories) and the bank's loudness 9. [ ] editor on the Strip frame (plugin-ui-bob) 10. [ ]
+G6 validate 11. [ ] G7 documents.
 
-**Where the port stands.** `Source/dsp/` holds the five modules, each mirroring its prototype
-module: `SincDelay.h`, `Rotate.h`, `AnalysisRing.h` (the decimating lock-free rings),
-`Detector.h` (GCC-PHAT and the Rotate suggestion), `AlignEngine.h` (the audio path, the latency
-and clamp rules, and a latency-compensated click-free bypass, rule 7). `PluginProcessor` is
-rewritten around them: the stereo sidechain aux bus, cached parameter atomics, the detect worker
-thread, the `AsyncUpdater` that writes delay and polarity as one host edit, `applyRotateSuggestion`
-for the Apply button, Track mode, and the correlation meter.
+**This session (Mac, 2026-11-03).** `toolchain.py check` OK. `Source/oberli/` refreshed from
+plugin-template 0e7d4f4 with its own tool (`python3 tools/refresh_oberli.py`, sage #33B679): the
+shared code, its tests (`oberli_loudness`, `oberli_shared`, `oberli_copy`), the snapshot target, the
+bounce null test, Rubik and Nunito in `notices.toml`. The kit copies (`scripts/dsp-kit/`) refreshed
+from bob-skills sound-design-bob 5.3.0 (harness-contract.md: the impulse is 0.5; paramgen.py: int
+value strings; perf.py: idle on the cells' slice; test_template.py: the every-parameter state round
+trip, p99.9 judged only on the budget machine). The harness took the template's generic fixes it
+was missing (the integer `sample_rate` echo that `dspkit smoke` compares as text, `--block=0`, blocks
+larger than announced, the ASan-aware malloc trap, `--non-realtime`, the tail's last sample) and
+gained `product.params_plain`, the raw values the DSP read.
 
-Build: **green**, warning-free. `cmake --build --preset release -j4` builds `Align_VST3`,
-`Align_Standalone` and `AlignHarness`. The harness runs the real processor with a sidechain:
-`AlignHarness --signal=impulse --sidechain-signal=noise:pink:-20 --seconds=0.5 --block=64`
-reports latency 960 samples at the default Window, peak 0.0 dBFS through the impulse, no NaN, and
-`product.sidechain_connected: true`.
+**What G3 found.** Two defects in both the port and the prototype, now fixed with regression tests
+shown failing first (docs/failures.md). And three things in the measuring, not the DSP: Detect's
+`delay_ms` is the Delay to apply (the negative of the pair's truth, as the prototype); the
+prototype's fast direct-form Rotate is not the port's structure while the coefficient glides
+(G5 now runs the TPT form: -78 -> -126 dBFS); and on arm64 JUCE's 0..1 -> plain conversion is one
+FMA, so Delay 1.75 ms arrives as 1.7499924 ms (G5 now feeds the prototype the plain values the port
+read). The prototype's delay crossfade also started one step late and ended one short (a 1/L jump,
+-64 dBFS against the port); it now ramps as `SincDelay.h` does.
 
-Two things had to be fixed to get there, both worth knowing: `juce_add_plugin` puts the
-`JucePlugin_*` definitions on the plugin target only, and this harness compiles the product
-sources itself, so the two the sources use are repeated in the harness target from the same single
-sources CMake already has; and the eight deliberate exact float comparisons in `Source/dsp/` now
-say so with `juce::exactlyEqual`, which is what `-Wfloat-equal` is asking for.
+**The editor.** The template's editor is now the Strip frame (`oberli::ui::StripEditor`); Align's is
+still the slider stub. Wiring it is plugin-ui-bob's work (G2 of the UI gates): the correlation well
+needs the signed GCC curve published by the detector, which `Detector::Result` does not carry yet
+(it has `peak` as a magnitude and `inverted` for the sign).
 
-Harness extensions, documented because the contract (v3) has neither: `--sidechain=<file.wav>` and
-`--sidechain-signal=<spec>` fill the reference bus; `--detect-at=<t>` presses Detect the way a host
-would, waits for the worker and calls `applyPendingDetect()` directly, because a console app runs
-no message loop; `--detect-timeout=<ms>` bounds that wait. The `product` object carries a `detects`
-log (the result, the readout in words, the suggestion), plus the correlation, the Track offset and
-the analysis rate.
-
-Nothing in the port has been **measured** yet - no G3 battery, no G5 null. The G2 numbers above
-are the **prototype's**, not the port's.
-
-Still to write: `tools/tests/test_plugin.py` from the kit's `test_template.py`, the `tools/measure/`
-scripts that fill the G3 metric table, and the G5 null against the prototype's seeded renders.
-
-Working tree: clean. Tests: not registered yet.
-Open questions for the owner: the "Waiting for Björn" lines above; two of them are decisions
-(Rotate's re-parameterisation, the asymmetric Delay clamp).
-Next command: `ctest --preset fast` (once `tools/tests/test_plugin.py` exists)
+Working tree: clean after this checkpoint's commit. Tests: `ctest --preset fast` 9/9, render 3 + 1 skipped.
+Open questions for the owner: the "Waiting for Björn" lines above; two are decisions (Rotate's
+re-parameterisation, the asymmetric Delay clamp).
+Next command: write `tools/measure/g3_metrics.py`, then `python3 tools/measure/g3_metrics.py`.
 
 ## Decisions
+- 2026-11-03: **Rotate and Below run on a 0.16 ms control grid** fixed to the stream, not once per
+  block (rule 2's "sub-blocks of <= 32 samples": 7 at 44.1 k, 31 at 192 k; rule 12: set in seconds).
+  A block whose smoothers sit on their targets runs in one piece, so the steady state costs nothing.
+- 2026-11-03: **One crossfade law for every switch**: `LinearFade` (`Source/dsp/Fade.h`), the
+  closed form `start + step * done`, landing exactly; a target change mid-fade restarts the full
+  length from the current position. Listen's three fades stay amplitude-complementary by
+  construction (their steps sum to zero).
+- 2026-11-03: **G5 compares DSP, not the parameter conversion.** The prototype gets the plain values
+  the port read (`product.params_plain`). The conversion's own error (7.6e-6 ms on Delay at 1.75 ms
+  on arm64) is far below the 0.01 ms the readout shows and is not a defect.
 - 2026-11-01: **G1 family - estimator.** GCC-PHAT (generalised cross-correlation with the phase
   transform) over the search window, parabolic interpolation on the peak, sign of the peak for
   polarity, peak-to-second-peak ratio for confidence. Not in `dsp-selection.md` S.4, so the row

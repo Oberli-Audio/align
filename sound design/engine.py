@@ -13,7 +13,10 @@ Latency and the clamp (G1 decision 6):
     internal delay  = latency_samples + clamp(Delay_ms, -Window_ms, +200 ms) * fs / 1000
 
 The engine is block-based and reads its parameter targets once per block, which is the
-`control_rate` column of parameters.csv; smoothing uses the `smoothing` column's tau.
+`control_rate` column of parameters.csv; smoothing uses the `smoothing` column's tau. Rotate and
+Below move a filter coefficient, so they advance on a control grid of CONTROL_MS fixed to the
+stream (rule 2: sub-blocks of at most 32 samples), never once per block: the smoothing time and the
+output do not depend on the block size (docs/failures.md, 2026-11-03).
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from dataclasses import dataclass
 import numpy as np
 
 import rotate as rotate_stage
+from fade import LinearFade
 from sinc_delay import SincDelay
 
 WINDOW_MS = (0.0, 5.0, 20.0, 50.0, 200.0)
@@ -32,6 +36,8 @@ LISTEN_FADE_MS = 15.0
 TRIM_TAU_MS = 20.0
 ROTATE_TAU_MS = 20.0
 BELOW_TAU_MS = 20.0
+CONTROL_MS = 0.16        # 7 samples at 44.1 kHz, 31 at 192 kHz
+SNAP = 1e-4              # a smoother lands on its target within this (degrees, Hz)
 ANALYSIS_SECONDS = 4.0
 
 
@@ -73,6 +79,12 @@ class _Smoothed:
         self.value = target + self._a * (self.value - target)
         return self.value
 
+    def step(self, target: float, snap: float) -> float:
+        """push(), landing exactly on the target within `snap`, so a settled stage is recognisable."""
+        nxt = target + self._a * (self.value - target)
+        self.value = target if abs(nxt - target) <= snap else nxt
+        return self.value
+
 
 class AlignEngine:
     def __init__(self) -> None:
@@ -83,10 +95,8 @@ class AlignEngine:
         self._trim = _Smoothed(1.0)
         self._rot = _Smoothed(0.0)
         self._below = _Smoothed(120.0)
-        self._pol_mix = 0.0
-        self._pol_fade = 1
-        self._listen_mix = np.zeros(3)
-        self._listen_fade = 1
+        self._pol = LinearFade()
+        self._listen = [LinearFade(), LinearFade(), LinearFade()]
         self._latency = 0
         self.ring_in = np.zeros(0)
         self.ring_ref = np.zeros(0)
@@ -101,15 +111,17 @@ class AlignEngine:
         max_delay = (DELAY_MAX_MS + max(WINDOW_MS)) * 1e-3 * fs
         self.delay.prepare(fs, max_delay, max_block)
         self.rotate.prepare(fs)
-        self._pol_fade = max(1, int(round(POLARITY_FADE_MS * 1e-3 * fs)))
-        self._listen_fade = max(1, int(round(LISTEN_FADE_MS * 1e-3 * fs)))
+        self._pol.prepare(int(round(POLARITY_FADE_MS * 1e-3 * fs)), 0.0)
+        for f in self._listen:
+            f.prepare(int(round(LISTEN_FADE_MS * 1e-3 * fs)), 0.0)
         n = int(round(ANALYSIS_SECONDS * fs))
         self.ring_in = np.zeros(n)
         self.ring_ref = np.zeros(n)
         self.set_params(self._params)
         self._trim.prepare(TRIM_TAU_MS, fs, 10.0 ** (self._params.trim_db / 20.0))
-        self._rot.prepare(ROTATE_TAU_MS, fs, self._params.rotate_deg)
-        self._below.prepare(BELOW_TAU_MS, fs, self._params.below_hz)
+        self._control_period = int(np.clip(round(CONTROL_MS * 1e-3 * fs), 1, 32))
+        self._rot.prepare(ROTATE_TAU_MS, fs / self._control_period, self._params.rotate_deg)
+        self._below.prepare(BELOW_TAU_MS, fs / self._control_period, self._params.below_hz)
         # The Rotate stage learns its bypass state here, before reset(), so a freshly prepared
         # processor starts at the setting it was given instead of fading into it - and so reset()
         # restores exactly what prepare() produced, which is what rule 8 asks of it.
@@ -119,9 +131,12 @@ class AlignEngine:
     def reset(self) -> None:
         self.delay.reset()
         self.rotate.reset()
-        self._pol_mix = 1.0 if self._params.polarity else 0.0
-        self._listen_mix = np.zeros(3)
-        self._listen_mix[int(self._params.listen)] = 1.0
+        self._pol.snap(1.0 if self._params.polarity else 0.0)
+        for s, f in enumerate(self._listen):
+            f.snap(1.0 if s == int(self._params.listen) else 0.0)
+        self._rot.value = self._params.rotate_deg
+        self._below.value = self._params.below_hz
+        self._countdown = 0
         self.ring_in[:] = 0.0
         self.ring_ref[:] = 0.0
         self._ring_w = 0
@@ -159,14 +174,6 @@ class AlignEngine:
         idx = (self._ring_w - n + np.arange(n)) % size
         return self.ring_in[idx].copy(), self.ring_ref[idx].copy()
 
-    def _ramp(self, current: float, target: float, length: int, n: int) -> tuple[np.ndarray, float]:
-        if current == target:
-            return np.full(n, target), current
-        step = (target - current) / length
-        ramp = np.clip(current + step * (np.arange(n) + 1), min(current, target),
-                       max(current, target))
-        return ramp, float(ramp[-1])
-
     def process_block(self, main: np.ndarray, ref: np.ndarray) -> np.ndarray:
         """main, ref: (2, n). Returns (2, n). `ref` is the sidechain bus."""
         channels, n = main.shape
@@ -178,16 +185,12 @@ class AlignEngine:
 
         # polarity, crossfaded (a polarity crossfade passes through silence; that is what a
         # polarity switch is, and it cannot overshoot)
-        pol_ramp, self._pol_mix = self._ramp(
-            self._pol_mix, 1.0 if self._params.polarity else 0.0, self._pol_fade, n)
-        x = main * (1.0 - 2.0 * pol_ramp)
+        self._pol.set_target(1.0 if self._params.polarity else 0.0)
+        x = main * (1.0 - 2.0 * self._pol.ramp(n))
 
         x = self.delay.process_block(x)
 
-        rot = self._rot.push(self._params.rotate_deg)
-        below = self._below.push(self._params.below_hz)
-        self.rotate.set_params(rot if self._params.rotate_deg > 0.0 else 0.0, below)
-        x = self.rotate.process_block(x)
+        x = self._process_rotate(x)
 
         # Trim, smoothed per sample. The closed form of the one-pole is used so the block size
         # cannot change the result: value_i = target + (v0 - target) * a^(i+1).
@@ -202,10 +205,31 @@ class AlignEngine:
         target[int(self._params.listen)] = 1.0
         mix = np.empty((3, n))
         for s in range(3):
-            mix[s], self._listen_mix[s] = self._ramp(self._listen_mix[s], target[s],
-                                                     self._listen_fade, n)
+            self._listen[s].set_target(target[s])
+            mix[s] = self._listen[s].ramp(n)
         mono = 0.5 * (x.mean(axis=0) + ref.mean(axis=0))
         out = mix[0] * x + mix[1] * ref + mix[2] * mono[None, :]
+        return out
+
+    def _process_rotate(self, x: np.ndarray) -> np.ndarray:
+        """Rotate on the control grid; a settled block runs in one piece (AlignEngine.h processRotate)."""
+        p, n, period = self._params, x.shape[1], self._control_period
+        if (self._rot.value == p.rotate_deg and self._below.value == p.below_hz
+                and self.rotate.settled(p.rotate_deg > 0.0)):
+            self._countdown = (self._countdown - n) % period
+            return self.rotate.process_block(x)
+        out = np.empty_like(x)
+        at = 0
+        while at < n:
+            if self._countdown <= 0:
+                rot = self._rot.step(p.rotate_deg, SNAP)
+                below = self._below.step(p.below_hz, SNAP)
+                self.rotate.set_params(rot if p.rotate_deg > 0.0 else 0.0, below)
+                self._countdown = period
+            k = min(self._countdown, n - at)
+            out[:, at:at + k] = self.rotate.process_block(x[:, at:at + k])
+            self._countdown -= k
+            at += k
         return out
 
     def render(self, main: np.ndarray, ref: np.ndarray, block: int = 512) -> np.ndarray:

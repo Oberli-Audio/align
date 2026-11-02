@@ -50,7 +50,12 @@ python3 tools/tests/check_table.py --harness $H --kind effect   # parameters.csv
 python3 scripts/dsp-kit/presetlint.py bank presets.csv --tier P --harness $H
 python3 scripts/dsp-kit/presetlint.py render presets.csv --tier P --harness $H --md docs/presets.md
 python3 scripts/dsp-kit/perf.py run --harness $H --arch x86_64   # the CPU row of the release gate
+python3 tools/measure/g5_null.py --rates all                     # G5: the port against the prototype, six settings x six rates
 ```
+
+On a Mac whose CMake finds a Python without numpy and scipy (Homebrew's, for one), nothing but the
+shared code's tests is registered; point CMake at one that has them:
+`cmake --preset release -DPython3_EXECUTABLE=/usr/bin/python3`.
 
 ## Validators (G6, the release gate)
 

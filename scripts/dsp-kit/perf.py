@@ -126,7 +126,13 @@ def run(a):
                 report["errors"] += errs
         # idle: notes released early, the rest of the render silent
         if a.idle_pct is not None:
-            idle = profile(h, presets[0], configs[0][0], configs[0][1], a, {"gate": 0.5, "seconds": max(a.seconds, 10.0)})
+            saved, K.ARCH = K.ARCH, a.arch or K.ARCH   # on the cells' slice, not the native one
+            try:
+                idle = profile(h, presets[0], configs[0][0], configs[0][1], a, {"gate": 0.5, "seconds": max(a.seconds, 10.0)})
+            finally:
+                K.ARCH = saved
+            if a.arch and idle["arch"] != a.arch:
+                raise RuntimeError("idle rendered on %s, expected %s (D.2.1: measure the slice the host runs)" % (idle["arch"], a.arch))
             report["cells"]["%s|idle|%d/%d" % (idle["arch"], configs[0][0], configs[0][1])] = {"p50_pct": idle["p50_pct"], "p99_pct": idle["p99_pct"]}
             if idle["p50_pct"] > a.idle_pct:
                 report["errors"].append("idle p50 %.1f %% above %.0f %% after the tail (lazy stages, voice kill? D.2.5)" % (idle["p50_pct"], a.idle_pct))

@@ -23,7 +23,7 @@ where it differs from this contract, the contract wins for new products.
 | `--notes=<n>[,<n>...]` / `--midi=<file.mid>` | Instruments: a chord held from t = 0, or a MIDI file | - |
 | `--gate=<s>` | Instruments: note-off for `--notes` at t seconds; the rest of the render is the tail and then silence (silence test, idle CPU, tail check) | held to the end |
 | `--reprepare-at=<t>:<rate>/<block>` | Call `prepareToPlay` again mid-render with the new rate and block, without `releaseResources` (pluginval's "non-releasing" case; D.5.1); repeatable | - |
-| `--in=<file.wav>` / `--signal=<name>` | Effects: input file, or a built-in test signal (`impulse`, `logsweep`, `sine:<Hz>:<dBFS>`, `noise:pink:<dBFS>`, `silence`) | - |
+| `--in=<file.wav>` / `--signal=<name>` | Effects: input file, or a built-in test signal (`impulse`: one sample of 0.5, -6 dBFS, so a unity effect stays below full scale; `logsweep`, `sine:<Hz>:<dBFS>`, `noise:pink:<dBFS>`, `silence`) | - |
 | `--out=<file.wav>` | Write the output (float32 WAV) | no file |
 | `--state-in=<file>` / `--state-out=<file>` | Load / save plugin state (D.5.3 golden state tests). `--state-in` accepts **arbitrary bytes**: a truncated, flipped, empty or foreign blob is refused with a message and a non-zero exit, or loaded as far as understood; it never crashes and the plugin keeps processing | - |
 | `--profile` | Time every `processBlock` **only** (the timer brackets the call, not MIDI building, WAV writing or metrics; normal thread - D.2.1 says why not a real-time one); add `profile` to the JSON | off |

@@ -14,6 +14,7 @@ which. Per-test seconds are printed; a `fast` test over FAST_BUDGET_S fails.
 """
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -33,6 +34,9 @@ RATES = (44100, 48000, 88200, 96000, 176400, 192000)
 BLOCKS = (0, 1, 13, 32, 64, 512, 4096)
 INSTRUMENT = "notes" in SOURCE
 FAST_BUDGET_S = float(os.environ.get("FAST_BUDGET_S", "20"))   # one test; the whole `fast` label stays under 60 s
+# rule 20 is judged on the budget machine only (perf.py run --arch <the host's slice>); a cloud VM or
+# a laptop on battery reports p99.9 here. DSPKIT_BUDGET_MACHINE=1 makes this suite judge it as well.
+BUDGET_MACHINE = os.environ.get("DSPKIT_BUDGET_MACHINE") == "1"
 # F.8 tolerances (peak of the residual, absolute dBFS, no alignment): same machine and
 # compiler bit-exact; across slices feed-forward -100, feedback tails -80.
 GOLDEN_PEAK_DB = {"same": -140.0, "cross-feedforward": -100.0, "cross-feedback": -80.0}
@@ -112,8 +116,10 @@ class Health(Timed):
             flags["gate"] = 0.5                                             # notes off early, the rest silent
         res = run(**flags)
         self.assertLess(res["levels"]["dc_dbfs"], -80.0)
-        self.assertLess(res["profile"]["p999_pct"], 25.0)                  # rule 20: p99.9 judged
-        print("over_deadline (reported, not judged, rule 20):", res["profile"]["over_deadline"])
+        if BUDGET_MACHINE:
+            self.assertLess(res["profile"]["p999_pct"], 25.0)              # rule 20: p99.9 judged on the budget machine
+        print("p99.9 %.1f %% (%s), over_deadline %s (reported, not judged, rule 20)" % (
+            res["profile"]["p999_pct"], "judged" if BUDGET_MACHINE else "reported: not the budget machine", res["profile"]["over_deadline"]))
 
     def test_latency_matches_impulse(self):                                # rule 7
         if INSTRUMENT:
@@ -134,7 +140,7 @@ class Health(Timed):
             out = Path(d) / "tail.wav"
             res = run(seconds=6.0, gate=1.0, out=out)
             x, fs = K.read_wav(out)
-            after = x[int((1.0 + res["applied"]["tail_seconds"]) * fs):]
+            after = x[round((1.0 + res["applied"]["tail_seconds"]) * fs):]   # round: the echo has 15 digits, int() can land one sample early
             self.assertLess(K.peak_dbfs(after) if after.size else -400.0, -90.0)
 
 
@@ -150,6 +156,23 @@ class Properties(Timed):
             xa, _ = K.read_wav(d / "a.wav")
             xb, _ = K.read_wav(d / "b.wav")
             self.assertTrue((xa == xb).all())
+
+    def test_state_round_trip_is_bytewise_for_every_parameter(self):       # D.5.3, rule 19
+        """The defaults, then every parameter at an odd normalised value, saved three times: one
+        text. A skewed range (a second float round trip on save) or a compiler that fuses
+        start + span * n into one FMA (arm64: no n gives 0 dB exactly) moves a value here."""
+        listed = json.loads(subprocess.run(K.harness_cmd(HARNESS) + ["--list-params"], capture_output=True, text=True, check=True).stdout)
+        odd = {p["id"]: 0.3 if p.get("steps", 0) in (0, None) else round(0.3 * (p["steps"] - 1)) / (p["steps"] - 1)
+               for p in listed if p.get("steps", 0) != 2}           # bools (and bypass) stay at their default
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            for name, params in (("defaults", None), ("odd", odd)):
+                run(params, state_out=d / "a.state", seconds=0.1)
+                run(state_in=d / "a.state", state_out=d / "b.state", seconds=0.1)
+                run(state_in=d / "b.state", state_out=d / "c.state", seconds=0.1)
+                a, b, c = ((d / n).read_bytes() for n in ("a.state", "b.state", "c.state"))
+                self.assertEqual(a, b, "%s: the state changed on the first load and save" % name)
+                self.assertEqual(b, c, "%s: the state drifts on every load and save" % name)
 
     def test_corrupted_state_does_not_crash(self):                         # D.5.3, fuzz
         with tempfile.TemporaryDirectory() as d:

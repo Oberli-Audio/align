@@ -26,3 +26,25 @@ url = "https://github.com/steinbergmedia/vst3sdk"
 license_file = "LICENSES/MIT.txt"
 note = "The copy bundled inside JUCE 8.0.16. VST is a registered trademark of Steinberg Media Technologies GmbH."
 cmake = "vst3sdk"
+
+[[component]]
+name = "Rubik"
+kind = "font"
+version = "2.300"
+spdx = "OFL-1.1"
+copyright = "2015 The Rubik Project Authors"
+url = "https://github.com/googlefonts/rubik"
+license_file = "LICENSES/OFL-1.1.txt"
+files = ["Rubik-Regular.ttf", "Rubik-Medium.ttf", "Rubik-SemiBold.ttf", "Rubik-Bold.ttf", "Rubik-ExtraBold.ttf"]
+note = "The editor's typeface (the Oberli Audio design system). The five static instances Google Fonts serves (Regular, Medium, SemiBold, Bold, ExtraBold), bundled unmodified in the plugin binary through BinaryData: no subsetting, no renaming."
+
+[[component]]
+name = "Nunito"
+kind = "font"
+version = "3.602"
+spdx = "OFL-1.1"
+copyright = "2014 The Nunito Project Authors"
+url = "https://github.com/googlefonts/nunito"
+license_file = "LICENSES/OFL-1.1.txt"
+files = ["Nunito-Regular.ttf", "Nunito-SemiBold.ttf"]
+note = "The editor's face for running text (the About text, tooltips, preset descriptions, messages). The two static instances Google Fonts serves (Regular, SemiBold), bundled unmodified in the plugin binary through BinaryData: no subsetting, no renaming."

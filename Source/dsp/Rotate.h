@@ -4,6 +4,8 @@
 
 #include <cmath>
 
+#include "Fade.h"
+
 /*  Align - Rotate, the low-end phase rotation (G1 decision 3, ported from "sound design"/rotate.py).
 
     Two cascaded first-order TPT all-passes at the same corner. The corner is not a parameter: it
@@ -61,7 +63,7 @@ public:
     {
         rate = sampleRate;
         channels = juce::jlimit (1, 2, numChannels);
-        fadeLength = juce::jmax (1, (int) std::lround (kFadeMs * 1.0e-3 * sampleRate));
+        fade.prepare ((int) std::lround (kFadeMs * 1.0e-3 * sampleRate), active ? 1.0f : 0.0f);
         reset();
     }
 
@@ -69,7 +71,7 @@ public:
     {
         for (auto& ch : state)
             ch.fill (0.0f);
-        mix = active ? 1.0f : 0.0f;
+        fade.snap (active ? 1.0f : 0.0f);
     }
 
     /** Control thread. `rotateDeg` is the smoothed value; the bypass follows the *target*, so a
@@ -81,19 +83,27 @@ public:
         active = targetActive;
     }
 
-    void process (float* const* data, int numSamples) noexcept
+    /** True when the stage is not fading and its bypass state matches `targetActive`. */
+    bool settled (bool targetActive) const noexcept
+    {
+        return active == targetActive && fade.idle();
+    }
+
+    void process (float* const* data, int numChannels, int numSamples) noexcept
     {
         if (numSamples <= 0)
             return;
-        const float targetMix = active ? 1.0f : 0.0f;
-        const float step = (targetMix - mix) / (float) fadeLength;
-        const bool fading = ! juce::exactlyEqual (mix, targetMix);
+        const int used = juce::jlimit (1, channels, numChannels);
+        fade.setTarget (active ? 1.0f : 0.0f);
+        const bool fading = ! fade.idle();
+        const bool wetOnly = fade.value > 0.5f;
+        LinearFade last = fade;
 
-        for (int ch = 0; ch < channels; ++ch)
+        for (int ch = 0; ch < used; ++ch)
         {
             float s0 = state[(size_t) ch][0];
             float s1 = state[(size_t) ch][1];
-            float m = mix;
+            LinearFade f = fade;                     // every channel walks the same positions
             for (int i = 0; i < numSamples; ++i)
             {
                 const float dry = data[ch][i];
@@ -109,26 +119,27 @@ public:
 
                 if (fading)
                 {
-                    m = juce::jlimit (juce::jmin (mix, targetMix), juce::jmax (mix, targetMix), m + step);
+                    const float m = f.next();
                     data[ch][i] = (1.0f - m) * dry + m * wet;
                 }
                 else
                 {
-                    data[ch][i] = targetMix > 0.5f ? wet : dry;
+                    data[ch][i] = wetOnly ? wet : dry;
                 }
             }
             state[(size_t) ch][0] = s0;
             state[(size_t) ch][1] = s1;
-            if (ch == channels - 1 && fading)
-                mix = m;
+            last = f;
         }
+        fade = last;
     }
 
 private:
     std::array<std::array<float, 2>, 2> state {};
     double rate = 48000.0;
-    float bigG = 1.0f, mix = 0.0f;
-    int channels = 2, fadeLength = 1;
+    LinearFade fade;
+    float bigG = 1.0f;
+    int channels = 2;
     bool active = false;
 };
 } // namespace align::dsp

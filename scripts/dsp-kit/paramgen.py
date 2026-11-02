@@ -410,9 +410,11 @@ def emit_juce(params, namespace="Params") -> str:
             names = ", ".join(f'"{c}"' for c in p["choice_list"])
             w(f'    layout.add (std::make_unique<AudioParameterChoice> ({pid}, "{name}", StringArray {{ {names} }}, {int(p["fdefault"])},')
             w(f"        AudioParameterChoiceAttributes(){attr}));")
-        elif p["type"] == "int":
+        elif p["type"] == "int":   # the same text as a float of its format_kind (a note shows C4, not 60)
             w(f'    layout.add (std::make_unique<AudioParameterInt> ({pid}, "{name}", {int(p["fmin"])}, {int(p["fmax"])}, {int(p["fdefault"])},')
-            w(f"        AudioParameterIntAttributes(){attr}));")
+            w(f"        AudioParameterIntAttributes(){attr}")
+            w(f"            .withStringFromValueFunction ({_cpp_string_lambda(p).replace('[] (float v, int) {', '[] (int i, int) { const float v = (float) i;', 1)})")
+            w(f"            .withValueFromStringFunction ([] (const juce::String& text) {{ return juce::roundToInt (({_cpp_parse_lambda(p)}) (text)); }})));")
         else:
             skew = skew_from_centre(p)
             step = 0.0 if p["nsteps"] <= 1 else (p["fmax"] - p["fmin"]) / (p["nsteps"] - 1)
@@ -506,8 +508,11 @@ def _cpp_parse_lambda(p) -> str:
     elif k == "hz":
         body.append('if (t.endsWith ("k") || t.endsWith ("khz")) return (float) (x * 1000.0); return (float) x;')
     elif k == "note":
-        body = ['auto t = s.trim(); static const char* n[] = { "c","c#","d","d#","e","f","f#","g","g#","a","a#","b" }; '
-                'for (int i = 0; i < 12; ++i) if (t.toLowerCase().startsWith (n[i])) return (float) ((t.getTrailingIntValue() + 1) * 12 + i); '
+        # sharps before naturals ("c#4" also starts with "c"), a flat after the letter, as value_from_string
+        body = ['auto t = s.trim().toLowerCase(); static const char* n[] = { "c#","d#","f#","g#","a#","c","d","e","f","g","a","b" }; '
+                'static const int pc[] = { 1, 3, 6, 8, 10, 0, 2, 4, 5, 7, 9, 11 }; '
+                'for (int i = 0; i < 12; ++i) if (t.startsWith (n[i])) { auto rest = t.substring ((int) std::strlen (n[i])); int base = pc[i]; '
+                'if (rest.startsWith ("b")) { base -= 1; rest = rest.substring (1); } return (float) ((rest.getIntValue() + 1) * 12 + base); } '
                 'return (float) t.getFloatValue();']
     else:
         body.append("return (float) x;" if p["fscale"] == 1.0 else f"return (float) (x / {cppf(p['fscale'])});")
@@ -750,6 +755,18 @@ def selftest() -> int:
                                 "preDelay,1,float,plain,Pre-delay,PreDly,Space,N,ms,0,120,15,20,N,,0,custom,1,s,")
     cpp_custom = emit_juce(read_table(io.StringIO(custom)))
     assert 'Display::custom ("preDelay", v)' in cpp_custom and "namespace Display" in cpp_custom
+    # int: the host gets the format_kind's text too (a note shows C4, not 60), and the C++ note parser
+    # tries the sharps before the naturals ("c#4" starts with "c")
+    note = SAMPLE_CSV.rstrip("\n") + "\nsplit,1,int,plain,Split,Split,Keys,N,note,36,96,60,,N,,61,note,0,,Y,0,crossfade,block,low / C4 / high,Keys below this note play the lower part,\n"
+    np_ = {q["id"]: q for q in read_table(io.StringIO(note))}
+    assert string_from_value(np_["split"], 61) == "C#4" and value_from_string(np_["split"], "C#4") == 61.0
+    cpp_note = emit_juce(list(np_.values()))
+    row = cpp_note[cpp_note.index("AudioParameterInt> (ParameterID { split"):]
+    row = row[:row.index("layout.add", 10) if "layout.add" in row[10:] else len(row)]
+    if ".withStringFromValueFunction ([] (int i, int)" not in row or "juce::roundToInt ((" not in row:
+        errs.append("an int parameter got no value strings in the C++ (its format_kind is lost in the host)")
+    if '{ "c#","d#","f#","g#","a#","c",' not in row:
+        errs.append("the C++ note parser must try the sharps first")
     # a broken table must be refused
     broken = SAMPLE_CSV.replace("size,1,float", "Size,1,float")
     try:

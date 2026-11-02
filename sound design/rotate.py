@@ -24,6 +24,8 @@ search and the editor's curve use, so the picture and the audio come from one fo
 from __future__ import annotations
 
 import numpy as np
+
+from fade import LinearFade
 from scipy.signal import lfilter
 
 FADE_MS = 15.0
@@ -54,20 +56,23 @@ class Rotate:
         self._g = G_MAX
         self._state = np.zeros((2, 2))   # [channel][section]
         self._active = False
-        self._mix = 0.0                  # 0 = dry, 1 = filtered
-        self._fade_len = 1
+        self.fade = LinearFade()         # 0 = dry, 1 = filtered
 
     def prepare(self, fs: float, channels: int = 2) -> None:
         self._fs = float(fs)
         self._state = np.zeros((channels, 2))
         self._zi = np.zeros((channels, 2, 1))
-        self._fade_len = max(1, int(round(FADE_MS * 1e-3 * fs)))
+        self.fade.prepare(int(round(FADE_MS * 1e-3 * fs)), 1.0 if self._active else 0.0)
         self.reset()
 
     def reset(self) -> None:
         self._state[:] = 0.0
         self._zi[:] = 0.0
-        self._mix = 1.0 if self._active else 0.0
+        self.fade.snap(1.0 if self._active else 0.0)
+
+    def settled(self, target_active: bool) -> bool:
+        """Not fading, and the bypass state matches `target_active`."""
+        return self._active == target_active and self.fade.idle()
 
     def set_params(self, rotate_deg: float, below_hz: float) -> None:
         """`rotate_deg` is the smoothed value; the bypass follows the *target*, so a parameter set
@@ -108,11 +113,8 @@ class Rotate:
         for ch in range(channels):
             wet[ch] = section(section(block[ch], ch, 0), ch, 1)
 
-        target = 1.0 if self._active else 0.0
-        if self._mix == target:
-            return wet if target == 1.0 else block.copy()
-        step = (target - self._mix) / self._fade_len
-        ramp = np.clip(self._mix + step * (np.arange(n) + 1), min(self._mix, target),
-                       max(self._mix, target))
-        self._mix = float(ramp[-1])
+        self.fade.set_target(1.0 if self._active else 0.0)
+        if self.fade.idle():
+            return wet if self.fade.value > 0.5 else block.copy()
+        ramp = self.fade.ramp(n)
         return (1.0 - ramp) * block + ramp * wet
