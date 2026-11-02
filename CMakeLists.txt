@@ -118,7 +118,12 @@ set(PRODUCT_SOURCES
     Source/PluginEditor.cpp
     Source/PluginEditor.h
     Source/Params.h
-    Source/State.h)
+    Source/State.h
+    Source/dsp/AlignEngine.h
+    Source/dsp/AnalysisRing.h
+    Source/dsp/Detector.h
+    Source/dsp/Rotate.h
+    Source/dsp/SincDelay.h)
 
 target_sources(Align PRIVATE ${PRODUCT_SOURCES})
 target_include_directories(Align PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -188,9 +193,16 @@ juce_add_console_app(AlignHarness PRODUCT_NAME "AlignHarness")
 target_sources(AlignHarness PRIVATE tools/harness/Main.cpp)
 target_include_directories(AlignHarness PRIVATE Source "${CMAKE_CURRENT_BINARY_DIR}/generated"
     "${CMAKE_CURRENT_BINARY_DIR}/Align_artefacts/JuceLibraryCode")
+# juce_add_plugin puts the JucePlugin_* definitions on the plugin target only, and the harness
+# compiles the product sources itself, so the two the sources actually use are repeated here from
+# the same single sources CMake already has (PRODUCT_NAME and the VERSION file). Adding the plugin
+# target's whole interface instead would drag JucePlugin_Build_VST3 and JUCE_SHARED_CODE into a
+# console app.
 target_compile_definitions(AlignHarness PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0
     JUCE_STRICT_REFCOUNTEDPOINTER=1 JUCE_STANDALONE_APPLICATION=1
+    JucePlugin_Name="Align"
+    JucePlugin_VersionString="${PRODUCT_VERSION}"
     PRODUCT_IS_INSTRUMENT=$<IF:$<BOOL:${PRODUCT_IS_SYNTH}>,1,0>)
 # The harness compiles the plugin sources itself with its own copy of the modules (simple and
 # portable; Horizon Pad links the SharedCode library instead, which saves a compile).

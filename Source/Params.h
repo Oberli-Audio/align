@@ -87,7 +87,7 @@ inline constexpr Help help[] = {
     { window, "Search range and reported latency; 0 is zero latency. Options 0 (live), 5 ms, 20 ms, 50 ms, 200 ms; default 20 ms.", "" },
     { detect, "Measures delay and polarity against the reference and applies them. Default Off.", "" },
     { rotate, "Turns the low end where no single delay lines up two mics. Range 0 to 180, default 0.", "off / quarter / half turn" },
-    { below, "The frequency under which Rotate acts. Range 30 Hz to 1.0 kHz, default 120 Hz.", "" },
+    { below, "The frequency under which Rotate acts. Range 30 Hz to 1.0 kHz, default 120 Hz.", "kick body / low end / low mids" },
     { mode, "Static keeps the value; Track re-measures slowly. Options Static, Track; default Static.", "" },
     { hold, "Freezes the tracked value where it is. Default Off.", "" },
     { listen, "Ref plays the sidechain, Sum plays both in mono. Options Off, Ref, Sum; default Off.", "" },

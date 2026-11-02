@@ -6,8 +6,7 @@
 
 namespace
 {
-template <typename T>
-T* param (juce::AudioProcessorValueTreeState& apvts, const char* id)
+std::atomic<float>* rawParam (juce::AudioProcessorValueTreeState& apvts, const char* id)
 {
     auto* p = apvts.getRawParameterValue (id);
     jassert (p != nullptr);   // the table and the code disagree: parameters.csv is the source
@@ -15,41 +14,96 @@ T* param (juce::AudioProcessorValueTreeState& apvts, const char* id)
 }
 } // namespace
 
+//==============================================================================
+/*  The detect worker. Polls a flag rather than waiting on an event, so the audio thread's whole
+    contribution to the handshake is one relaxed atomic store (rule 1). kWorkerPollMs of latency on
+    a 200 ms measurement is not worth a syscall on the audio thread. */
+class AlignAudioProcessor::Worker final : public juce::Thread
+{
+public:
+    explicit Worker (AlignAudioProcessor& p) : juce::Thread ("Align detect"), owner (p) {}
+
+    void run() override
+    {
+        while (! threadShouldExit())
+        {
+            if (owner.detectRequested.exchange (false, std::memory_order_acquire))
+                owner.runDetectOnce (false);
+            else if (trackDue())
+                owner.runDetectOnce (true);
+            wait (kWorkerPollMs);
+        }
+    }
+
+private:
+    bool trackDue()
+    {
+        const bool tracking = owner.modeParam != nullptr && owner.modeParam->load() >= 0.5f;
+        const bool held = owner.holdParam != nullptr && owner.holdParam->load() >= 0.5f;
+        if (! tracking || held)
+        {
+            nextTrack = 0;
+            return false;
+        }
+        const auto now = juce::Time::getMillisecondCounter();
+        if (nextTrack != 0 && now < nextTrack)
+            return false;
+        nextTrack = now + (juce::uint32) kTrackIntervalMs;
+        return true;
+    }
+
+    AlignAudioProcessor& owner;
+    juce::uint32 nextTrack = 0;
+};
+
+//==============================================================================
 AlignAudioProcessor::AlignAudioProcessor()
     : AudioProcessor (BusesProperties()
-#if ! PRODUCT_IS_INSTRUMENT
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
-#endif
+                          .withInput ("Sidechain", juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", Params::createParameterLayout())
 {
-    outGainParam = param<std::atomic<float>> (apvts, Params::outGain);
-#if ! PRODUCT_IS_INSTRUMENT
-    mixParam = param<std::atomic<float>> (apvts, Params::mix);
-    bypassParam = param<std::atomic<float>> (apvts, Params::bypassParameterId);
-#endif
+    delayParam = rawParam (apvts, Params::delay);
+    polarityParam = rawParam (apvts, Params::polarity);
+    windowParam = rawParam (apvts, Params::window);
+    rotateParam = rawParam (apvts, Params::rotate);
+    belowParam = rawParam (apvts, Params::below);
+    modeParam = rawParam (apvts, Params::mode);
+    holdParam = rawParam (apvts, Params::hold);
+    listenParam = rawParam (apvts, Params::listen);
+    trimParam = rawParam (apvts, Params::trim);
+    bypassParam = rawParam (apvts, Params::bypassParameterId);
+
+    // Detect is a momentary host parameter, so a controller button or a MIDI map can trigger it
+    // (sketch 3); the editor's button sets the same parameter.
+    apvts.addParameterListener (Params::detect, this);
+
+    worker = std::make_unique<Worker> (*this);
+    worker->startThread (juce::Thread::Priority::low);
 }
 
+AlignAudioProcessor::~AlignAudioProcessor()
+{
+    cancelPendingUpdate();
+    apvts.removeParameterListener (Params::detect, this);
+    if (worker != nullptr)
+        worker->stopThread (1000);
+}
+
+//==============================================================================
 void AlignAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
-    // smoothing from the table (Params::smoothing): tau in ms -> JUCE ramp length (settle in about 4.6 tau)
-    auto tauMs = [] (const char* id) { for (const auto& s : Params::smoothing) if (std::strcmp (s.id, id) == 0) return s.tauMs; return 0.0f; };
-    gainSmoothed.reset (sampleRate, (double) tauMs (Params::outGain) * 4.6 / 1000.0);
-    gainSmoothed.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outGainParam->load()));
-#if ! PRODUCT_IS_INSTRUMENT
-    mixSmoothed.reset (sampleRate, (double) tauMs (Params::mix) * 4.6 / 1000.0);
-    mixSmoothed.setCurrentAndTargetValue (mixParam->load() / 100.0f);
-    dryBuffer.setSize (2, juce::jmax (1, samplesPerBlock), false, false, true);
-#else
-    for (auto& v : voices)
-    {
-        v = Voice {};
-        v.env.setSampleRate (sampleRate);
-        v.env.setParameters ({ 0.01f, 0.1f, 0.8f, 0.3f });
-    }
-    sustainDown = false;
-#endif
+    engine.prepare (sampleRate, samplesPerBlock, currentParams());
+    reportedLatency = engine.latencySamples();
+    setLatencySamples (reportedLatency);
+
+    const int frame = engine.inputRing().capacity();
+    detector.prepare (engine.inputRing().rate(), frame);
+    frameRef.assign ((size_t) frame, 0.0f);
+    frameIn.assign ((size_t) frame, 0.0f);
+
     juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) juce::jmax (1, samplesPerBlock), 1 };
     for (auto* f : { &rmsFilterL, &rmsFilterR })
     {
@@ -58,8 +112,13 @@ void AlignAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
         f->setAttackTime (20.0f);
         f->setReleaseTime (20.0f);
     }
+    // the correlation meter's 400 ms window, as a one-pole on the three running sums
+    corrCoefficient = std::exp (-1.0 / (0.4 * sampleRate));
+    corrXY = corrXX = corrYY = 0.0;
     rmsL.store (0.0f);
     rmsR.store (0.0f);
+    correlationValue.store (0.0f);
+    trackOffset.store (0.0f);
 }
 
 void AlignAudioProcessor::releaseResources() {}
@@ -68,175 +127,275 @@ bool AlignAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) co
 {
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
-#if ! PRODUCT_IS_INSTRUMENT
-    if (layouts.getMainInputChannelSet() != juce::AudioChannelSet::stereo()
-        && layouts.getMainInputChannelSet() != juce::AudioChannelSet::mono())
+    const auto in = layouts.getMainInputChannelSet();
+    if (in != juce::AudioChannelSet::stereo() && in != juce::AudioChannelSet::mono())
         return false;
-#endif
+    if (layouts.inputBuses.size() > 1)
+    {
+        const auto side = layouts.getChannelSet (true, 1);
+        if (! side.isDisabled() && side != juce::AudioChannelSet::stereo()
+            && side != juce::AudioChannelSet::mono())
+            return false;
+    }
     return true;
 }
 
 double AlignAudioProcessor::getTailLengthSeconds() const
 {
-#if PRODUCT_IS_INSTRUMENT
-    return 0.3;   // the release of the skeleton's envelope; the real instrument reports its longest tail (D.2.5)
-#else
-    return 0.0;
-#endif
+    // the deepest the line can be asked to hold: the widest Window plus the full positive Delay
+    return (double) (align::dsp::AlignEngine::kWindowMs[align::dsp::AlignEngine::kNumWindows - 1]
+                     + align::dsp::AlignEngine::kDelayMaxMs) * 1.0e-3;
 }
 
 juce::AudioProcessorParameter* AlignAudioProcessor::getBypassParameter() const
 {
-#if PRODUCT_IS_INSTRUMENT
-    return nullptr;   // rule 7 does not apply to an instrument
-#else
     return apvts.getParameter (Params::bypassParameterId);
-#endif
 }
 
-void AlignAudioProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void AlignAudioProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
-    // an effect passes the input through, an instrument is silent; output channels beyond the input are cleared
-    for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
-        buffer.clear (ch, 0, buffer.getNumSamples());
+    // the host's hard bypass still has to come out latency-compensated (rule 7), so it runs the
+    // same path with the bypass crossfade pinned on; the chain keeps its state warm
+    render (buffer, midi, true);
 }
 
-#if PRODUCT_IS_INSTRUMENT
-void AlignAudioProcessor::noteOn (int note, float velocity)
+//==============================================================================
+align::dsp::AlignEngine::Params AlignAudioProcessor::currentParams() const noexcept
 {
-    Voice* slot = nullptr;
-    for (auto& v : voices)
-        if (v.note == note) { slot = &v; break; }                  // retrigger the same key
-    if (slot == nullptr)
-        for (auto& v : voices)
-            if (! v.active()) { slot = &v; break; }
-    if (slot == nullptr)
-        for (auto& v : voices)
-            if (! v.env.isActive()) { slot = &v; break; }
-    if (slot == nullptr)
-        slot = &voices[0];                                             // steal the first (the real instrument: oldest released, D.5)
-    slot->note = note;
-    slot->velocity = velocity;
-    slot->phase = 0.0f;
-    slot->env.noteOn();
+    align::dsp::AlignEngine::Params p;
+    p.delayMs = delayParam != nullptr ? delayParam->load() : 0.0f;
+    p.polarity = polarityParam != nullptr && polarityParam->load() >= 0.5f;
+    p.window = windowParam != nullptr ? (int) std::lround (windowParam->load()) : 2;
+    p.rotateDeg = rotateParam != nullptr ? rotateParam->load() : 0.0f;
+    p.belowHz = belowParam != nullptr ? belowParam->load() : 120.0f;
+    p.listen = listenParam != nullptr ? (int) std::lround (listenParam->load()) : 0;
+    p.trimDb = trimParam != nullptr ? trimParam->load() : 0.0f;
+    const bool tracking = modeParam != nullptr && modeParam->load() >= 0.5f;
+    p.trackOffsetMs = tracking ? trackOffset.load (std::memory_order_relaxed) : 0.0f;
+    return p;
 }
-
-void AlignAudioProcessor::noteOff (int note)
-{
-    for (auto& v : voices)
-        if (v.note == note)
-            v.env.noteOff();
-}
-
-void AlignAudioProcessor::renderVoices (juce::AudioBuffer<float>& out, int start, int numSamples)
-{
-    const float bend = std::pow (2.0f, pitchBendSemitones / 12.0f);
-    for (auto& v : voices)
-    {
-        if (! v.active())
-            continue;
-        if (! v.env.isActive())
-        {
-            v.note = -1;
-            continue;
-        }
-        const float hz = 440.0f * std::pow (2.0f, (float) (v.note - 69) / 12.0f) * bend;
-        v.increment = hz / (float) currentSampleRate;
-        auto* l = out.getWritePointer (0);
-        auto* r = out.getNumChannels() > 1 ? out.getWritePointer (1) : nullptr;
-        const float vibrato = modWheel * 0.005f;
-        for (int i = start; i < start + numSamples; ++i)
-        {
-            const float e = v.env.getNextSample();
-            const float s = std::sin (v.phase * juce::MathConstants<float>::twoPi) * v.velocity * 0.2f * e;
-            v.phase += v.increment * (1.0f + vibrato * std::sin ((float) i * 0.001f));
-            if (v.phase >= 1.0f) v.phase -= 1.0f;
-            l[i] += s;
-            if (r != nullptr) r[i] += s;
-        }
-    }
-}
-#endif
 
 void AlignAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
+    render (buffer, midi, bypassParam->load() >= 0.5f);
+}
+
+void AlignAudioProcessor::render (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi,
+                                  bool bypassed)
+{
     juce::ScopedNoDenormals noDenormals;
+    juce::ignoreUnused (midi);
     const int numSamples = buffer.getNumSamples();
-    for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
-        buffer.clear (ch, 0, numSamples);
+
+    auto mainBus = getBusBuffer (buffer, true, 0);
+    auto outBus = getBusBuffer (buffer, false, 0);
+    for (int ch = mainBus.getNumChannels(); ch < outBus.getNumChannels(); ++ch)
+        outBus.clear (ch, 0, numSamples);
     if (numSamples == 0)   // a zero-length block is legal (harness contract, D.5.1)
         return;
 
-    gainSmoothed.setTargetValue (juce::Decibels::decibelsToGain (outGainParam->load()));
+    const auto params = currentParams();
+    engine.setParams (params);
+    if (engine.latencySamples() != reportedLatency)
+    {
+        // Window changed: the host re-measures. Delay never gets here (G1 decision 6), and the
+        // manual says to set Window before recording automation.
+        reportedLatency = engine.latencySamples();
+        setLatencySamples (reportedLatency);
+    }
 
-#if PRODUCT_IS_INSTRUMENT
-    buffer.clear();
-    // MIDI at sample offsets (rule 16): split the block at every event
-    int pos = 0;
-    for (const auto metadata : midi)
-    {
-        const auto msg = metadata.getMessage();
-        const int at = juce::jlimit (0, numSamples, metadata.samplePosition);
-        if (at > pos)
-        {
-            renderVoices (buffer, pos, at - pos);
-            pos = at;
-        }
-        if (msg.isNoteOn())            noteOn (msg.getNoteNumber(), msg.getFloatVelocity());
-        else if (msg.isNoteOff())      { if (! sustainDown) noteOff (msg.getNoteNumber()); }
-        else if (msg.isSustainPedalOn())  sustainDown = true;
-        else if (msg.isSustainPedalOff()) { sustainDown = false; for (auto& v : voices) if (v.active()) v.env.noteOff(); }
-        else if (msg.isPitchWheel())   pitchBendSemitones = 2.0f * (float) (msg.getPitchWheelValue() - 8192) / 8192.0f;
-        else if (msg.isController() && msg.getControllerNumber() == 1) modWheel = (float) msg.getControllerValue() / 127.0f;
-        else if (msg.isAllNotesOff() || msg.isAllSoundOff()) { for (auto& v : voices) v = Voice {}; }
-    }
-    if (pos < numSamples)
-        renderVoices (buffer, pos, numSamples - pos);
-    midi.clear();
-#else
-    juce::ignoreUnused (midi);
-    if (bypassParam->load() >= 0.5f)
-    {
-        processBlockBypassed (buffer, midi);
-        return;
-    }
-    // the skeleton's "wet" path is the input itself; the real effect renders into the buffer here
-    const int channels = juce::jmin (2, buffer.getNumChannels());
+    auto sideBus = getBusCount (true) > 1 ? getBusBuffer (buffer, true, 1) : juce::AudioBuffer<float>();
+    const bool haveSide = sideBus.getNumChannels() > 0 && sideBus.getNumSamples() >= numSamples;
+    const float* sidePointers[2] { nullptr, nullptr };
+    if (haveSide)
+        for (int ch = 0; ch < 2; ++ch)
+            sidePointers[ch] = sideBus.getReadPointer (juce::jmin (ch, sideBus.getNumChannels() - 1));
+
+    float* mainPointers[2] { nullptr, nullptr };
+    const int channels = juce::jlimit (1, 2, outBus.getNumChannels());
     for (int ch = 0; ch < channels; ++ch)
-        dryBuffer.copyFrom (ch, 0, buffer, ch, 0, numSamples);
-    mixSmoothed.setTargetValue (mixParam->load() / 100.0f);
-    for (int i = 0; i < numSamples; ++i)
-    {
-        const float m = mixSmoothed.getNextValue();
-        const float dry = std::cos (m * juce::MathConstants<float>::halfPi);   // equal power
-        const float wet = std::sin (m * juce::MathConstants<float>::halfPi);
-        for (int ch = 0; ch < channels; ++ch)
-        {
-            auto* out = buffer.getWritePointer (ch);
-            out[i] = dryBuffer.getSample (ch, i) * dry + out[i] * wet;
-        }
-    }
-#endif
+        mainPointers[ch] = outBus.getWritePointer (ch);
 
-    // output gain, smoothed per sample (Law 5), then the level the editor shows
-    auto* l = buffer.getWritePointer (0);
-    auto* r = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
+    // the reference is "connected" when the bus exists and carries something above -90 dBFS
+    if (haveSide)
+    {
+        float m = 0.0f;
+        for (int ch = 0; ch < sideBus.getNumChannels(); ++ch)
+            m = juce::jmax (m, sideBus.getMagnitude (ch, 0, numSamples));
+        if (m > 3.2e-5f)
+            sidechainActive.store (true, std::memory_order_relaxed);
+    }
+    else
+    {
+        sidechainActive.store (false, std::memory_order_relaxed);
+    }
+
+    engine.process (mainPointers, haveSide ? sidePointers : nullptr, channels, numSamples, bypassed);
+
+    // meters, taken after everything so they tell the truth (F.9, stage order)
     float lastL = 0.0f, lastR = 0.0f;
     for (int i = 0; i < numSamples; ++i)
     {
-        const float g = gainSmoothed.getNextValue();
-        l[i] *= g;
-        lastL = rmsFilterL.processSample (0, l[i]);
-        if (r != nullptr)
-        {
-            r[i] *= g;
-            lastR = rmsFilterR.processSample (0, r[i]);
-        }
+        const float l = mainPointers[0][i];
+        const float r = channels > 1 ? mainPointers[1][i] : l;
+        lastL = rmsFilterL.processSample (0, l);
+        lastR = rmsFilterR.processSample (0, r);
+        const double x = 0.5 * ((double) l + (double) r);
+        const double y = haveSide ? 0.5 * ((double) sidePointers[0][i] + (double) sidePointers[1][i]) : 0.0;
+        corrXY = x * y + corrCoefficient * (corrXY - x * y);
+        corrXX = x * x + corrCoefficient * (corrXX - x * x);
+        corrYY = y * y + corrCoefficient * (corrYY - y * y);
     }
     rmsL.store (lastL, std::memory_order_relaxed);
-    rmsR.store (r != nullptr ? lastR : lastL, std::memory_order_relaxed);
+    rmsR.store (channels > 1 ? lastR : lastL, std::memory_order_relaxed);
+    const double den = std::sqrt (corrXX * corrYY);
+    correlationValue.store (den > 1.0e-20 ? (float) juce::jlimit (-1.0, 1.0, corrXY / den) : 0.0f,
+                            std::memory_order_relaxed);
 }
 
+//==============================================================================
+void AlignAudioProcessor::parameterChanged (const juce::String& id, float value)
+{
+    // called on whichever thread moved the parameter, the audio thread included: one relaxed store
+    if (id == Params::detect && value >= 0.5f)
+        requestDetect();
+}
+
+void AlignAudioProcessor::runDetectOnce (bool tracking)
+{
+    auto& inRing = engine.inputRing();
+    auto& refRing = engine.referenceRing();
+    if (! inRing.enoughForDetect() || frameRef.empty())
+        return;
+
+    const double analysisRate = inRing.rate();
+    const int wanted = tracking ? (int) (kTrackFrameSeconds * analysisRate) : (int) frameRef.size();
+    const int n = juce::jmin (refRing.snapshot (frameRef.data(), wanted),
+                              inRing.snapshot (frameIn.data(), wanted));
+    if (n < 16)
+        return;
+
+    float loMs = 0.0f, hiMs = 0.0f;
+    const float windowMs = align::dsp::AlignEngine::kWindowMs[
+        juce::jlimit (0, align::dsp::AlignEngine::kNumWindows - 1,
+                      (int) std::lround (windowParam->load()))];
+    if (tracking)
+    {
+        // Track searches a narrow range around the value in use, and never touches Polarity: a
+        // polarity change mid-take is always wrong (sketch 4.3).
+        const float base = delayParam->load() + trackOffset.load (std::memory_order_relaxed);
+        loMs = juce::jmax (-windowMs, base - kTrackSearchMs) - delayParam->load();
+        hiMs = juce::jmin (align::dsp::AlignEngine::kDelayMaxMs, base + kTrackSearchMs) - delayParam->load();
+        loMs = juce::jmin (loMs, hiMs - 0.1f);
+    }
+    else
+    {
+        align::dsp::Detector::searchRangeMs (windowMs, loMs, hiMs);
+    }
+
+    const auto result = detector.detect (frameRef.data(), frameIn.data(), n, loMs, hiMs, ! tracking);
+    if (! result.ok)
+    {
+        if (! tracking)
+        {
+            const juce::ScopedLock lock (resultLock);
+            publishedResult = result;
+            resultSequence.fetch_add (1, std::memory_order_release);
+        }
+        return;
+    }
+
+    if (tracking)
+    {
+        const float tau = std::exp (-kTrackIntervalMs / kTrackTauMs);
+        const float target = result.delayMs;
+        const float now = trackOffset.load (std::memory_order_relaxed);
+        trackOffset.store (target + tau * (now - target), std::memory_order_relaxed);
+        return;
+    }
+
+    {
+        const juce::ScopedLock lock (resultLock);
+        publishedResult = result;
+    }
+    pendingApply.store (true, std::memory_order_release);
+    resultSequence.fetch_add (1, std::memory_order_release);
+    triggerAsyncUpdate();
+}
+
+align::dsp::Detector::Result AlignAudioProcessor::lastDetect() const
+{
+    const juce::ScopedLock lock (resultLock);
+    return publishedResult;
+}
+
+void AlignAudioProcessor::handleAsyncUpdate() { applyPendingDetect(); }
+
+void AlignAudioProcessor::applyPendingDetect()
+{
+    if (! pendingApply.exchange (false, std::memory_order_acquire))
+        return;
+    align::dsp::Detector::Result result;
+    {
+        const juce::ScopedLock lock (resultLock);
+        result = publishedResult;
+    }
+    if (! result.ok)
+        return;
+
+    auto* delayP = apvts.getParameter (Params::delay);
+    auto* polarityP = apvts.getParameter (Params::polarity);
+    if (delayP == nullptr || polarityP == nullptr)
+        return;
+
+    // one host edit for both, so a single undo step takes the alignment back (sketch 4.2)
+    const float windowMs = align::dsp::AlignEngine::kWindowMs[
+        juce::jlimit (0, align::dsp::AlignEngine::kNumWindows - 1,
+                      (int) std::lround (windowParam->load()))];
+    const float wanted = juce::jlimit (-windowMs, align::dsp::AlignEngine::kDelayMaxMs, result.delayMs);
+    delayP->beginChangeGesture();
+    delayP->setValueNotifyingHost (delayP->convertTo0to1 (wanted));
+    delayP->endChangeGesture();
+    polarityP->beginChangeGesture();
+    polarityP->setValueNotifyingHost (result.inverted ? 1.0f : 0.0f);
+    polarityP->endChangeGesture();
+
+    // the momentary Detect parameter falls back to off, so the next press is a fresh 0 -> 1
+    if (auto* detectP = apvts.getParameter (Params::detect))
+        if (detectP->getValue() >= 0.5f)
+            detectP->setValueNotifyingHost (0.0f);
+}
+
+void AlignAudioProcessor::applyRotateSuggestion()
+{
+    const auto result = lastDetect();
+    if (! result.ok || ! result.suggestion.needed)
+        return;
+    auto* rotateP = apvts.getParameter (Params::rotate);
+    auto* belowP = apvts.getParameter (Params::below);
+    if (rotateP == nullptr || belowP == nullptr)
+        return;
+    rotateP->beginChangeGesture();
+    rotateP->setValueNotifyingHost (rotateP->convertTo0to1 (result.suggestion.rotateDeg));
+    rotateP->endChangeGesture();
+    belowP->beginChangeGesture();
+    belowP->setValueNotifyingHost (belowP->convertTo0to1 (result.suggestion.belowHz));
+    belowP->endChangeGesture();
+}
+
+bool AlignAudioProcessor::waitForDetect (int sinceSequence, int timeoutMs)
+{
+    const auto deadline = juce::Time::getMillisecondCounter() + (juce::uint32) juce::jmax (0, timeoutMs);
+    while (resultSequence.load (std::memory_order_acquire) <= sinceSequence)
+    {
+        if (juce::Time::getMillisecondCounter() >= deadline)
+            return false;
+        juce::Thread::sleep (2);
+    }
+    return true;
+}
+
+//==============================================================================
 juce::AudioProcessorEditor* AlignAudioProcessor::createEditor()
 {
     return new AlignAudioProcessorEditor (*this);
@@ -254,7 +413,8 @@ void AlignAudioProcessor::setStateInformation (const void* data, int sizeInBytes
 
 bool AlignAudioProcessor::loadState (const void* data, int sizeInBytes)
 {
-    // arbitrary bytes are refused, never crashed on (D.5.3): a foreign or newer blob leaves the state as it is
+    // arbitrary bytes are refused, never crashed on (D.5.3): a foreign or newer blob leaves the
+    // state as it is
     if (data == nullptr || sizeInBytes <= 0)
         return false;
     auto xml = getXmlFromBinary (data, sizeInBytes);

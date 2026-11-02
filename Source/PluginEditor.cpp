@@ -5,11 +5,13 @@
 namespace
 {
 // Placeholder colours in the brand's two themes (plugin-ui-bob oberli-audio-brand.md); the
-// real tokens come with the LookAndFeel at G2.
+// real tokens come with the shared LookAndFeel (Source/oberli/). Accent: sage #33B679, the
+// category accent for mix tools (decided 2026-11-01); analysis and monitoring plugins take
+// peacock #039BE5.
 struct Theme { juce::Colour bg, ink, accent; };
 constexpr bool kBone = std::string_view ("bone") == "bone";
-const Theme theme = kBone ? Theme { juce::Colour (0xFFF3EEE4), juce::Colour (0xFF1C1B19), juce::Colour (0xFFF6BF26) }
-                          : Theme { juce::Colour (0xFF1C1B19), juce::Colour (0xFFF3EEE4), juce::Colour (0xFFF6BF26) };
+const Theme theme = kBone ? Theme { juce::Colour (0xFFF3EEE4), juce::Colour (0xFF1C1B19), juce::Colour (0xFF33B679) }
+                          : Theme { juce::Colour (0xFF1C1B19), juce::Colour (0xFFF3EEE4), juce::Colour (0xFF33B679) };
 } // namespace
 
 AlignAudioProcessorEditor::AlignAudioProcessorEditor (AlignAudioProcessor& p)

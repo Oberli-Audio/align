@@ -7,4 +7,5 @@ line marks a release that changes a factory sound; "(reported by X.)" credits a 
 
 ## [0.1.0] - 2026-11-01
 ### Added
-- Started from the Oberli Audio plugin template: effect, bone theme, accent saffron.
+- Started from the Oberli Audio plugin template: effect, bone theme, accent sage
+  (#33B679, the category accent for mix tools).
