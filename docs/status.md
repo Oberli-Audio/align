@@ -1,5 +1,5 @@
 # Status - Align 0.1.0 (2026-11-03)
-Tier P, track E (effect): G3 18/19 with one open exception (Track settling), G5 closed (null, bank, golden), the editor built on the Strip frame (plugin-ui-bob G2-G3); next G6 (validators, hosts). Recipe D.8.1.
+Tier P, track E (effect): G3 18/19 with one open exception (Track settling), G5 closed (null, bank, golden), the editor built on the Strip frame (plugin-ui-bob G2-G3), G6's unattended part green; open: the host checks (yours). Recipe D.8.1.
 
 ## Waiting for Björn
 Newest first; one line each. Everything else keeps moving.
@@ -25,7 +25,7 @@ Newest first; one line each. Everything else keeps moving.
 | G3 | 18/19, one open exception | `python3 tools/measure/g3_metrics.py --json build/g3.json` -> 18/19 within target (the table is the script's output; re-run on a quiet machine 2026-11-03, the same 18/19; Detect 77 ms; CPU below): latency = impulse = Window, 0 samples error at all five; null at neutral -156.5 dBFS; bypass null -156.5 dBFS; fractional delay 0.00066 dB (44.1 k) / 0.00023 dB (48 k) to 18 kHz; Rotate magnitude 7.1e-4 dB and phase at Below 0.093 deg worst of 20 settings; Detect drum loop 0.0046 ms, flipped, 92.9 % worst of 6 rates; Detect 90 ms press to result (M3 Pro); room pair 0.0086 ms; DI/amp 0.0545 ms (confidence 48 %, the readout will say low confidence); comb notch -39.5 -> -0.2 dB; Rotate suggestion +0.42 low-band correlation, other-mic said, delay-only silent; Delay sweep overshoot 0.0000 dB; switches max_click at the sine's own -17.69 dB; mono L == R exactly; 60 s silence clean, DC -300 dBFS; CPU x86_64 48 k/64 Track + 200 ms p99.9 0.60 %, max 0.82 % (2.77 % in the first run, taken on a battery at 3 %); **Track 2 ms step: within 5 % at 3.5 s (fail, exception)**. Earlier the same day: `ctest --preset fast` -> 9/9 (suite_fast 27 tests, harness_contract, parameter_table, bounce_null, preset_bank, the shared code's four), 51 s. `ctest --test-dir build -L render` -> suite_render 3 pass, goldens skipped (none yet), 25 s. The suite (`tools/tests/test_plugin.py`) asserts on the port: latency = impulse = Window at all five Windows; null at Delay 0 / Polarity off / Rotate 0 below -140 dBFS at every Window; bypass nulls against the compensated input; Window 0 has zero latency and no negative delay; fractional delay flat within 0.05 dB to 18 kHz at 44.1 and 48 k; Rotate magnitude within 0.05 dB and phase at Below within 1 deg at three settings; mono stays mono; Delay sweep overshoot <= 0.01 dB; Detect on the drum loop within 0.02 ms, flipped, > 80 % at all six rates; room pair within 0.1 ms; DI/amp within 0.1 ms; comb notch < -10 dB before Detect and > -1.5 dB after. **Next: `tools/measure/g3_metrics.py` to print the metric table's numbers (the tests assert thresholds, the table needs the values)**, Detect time, CPU on the x86_64 slice |
 | G4 | rebuilt 2026-11-03 | `cmake --preset release && cmake --build --preset release` on the Mac (universal, LTO): green, no warnings in project code |
 | G5 | closed 2026-11-03 | Null: `python3 tools/measure/g5_null.py --rates all` -> 36/36 within -100 dBFS (F.8: float with IIR state), worst peak -120.9 dBFS, latency equal in every case; six settings x six rates. Bank: `presetlint.py bank presets.csv --tier P --track effect --categories ...` OK (CTest `preset_bank`); `python3 tools/measure/bank_check.py --md docs/presets.md` -> 9 presets, 0 errors: Init = table, loudness farthest 0.022 LU from the median (+/-1 LU), true peak -9.23 dBTP, no click added (max_click -3.32 dB = the drum loop's own), state round trip bytewise and render-identical, p99.9 0.81 % worst (CTest `bank_render`). Golden: `tools/tests/golden/full-path` (x86_64, every stage engaged): same slice bit-identical, arm64 -145.1 dBFS peak against F.8's -100 (`Goldens.test_goldens_match`). Defining features by name: the readout (`test_readout_in_words_with_distance`), the Sum well's comb (`test_sum_comb_disappears_after_detect`), the well's sign (`inverted`; the signed curve itself reaches the editor with the Strip wiring) |
-| G6 | - | `validate_plugin.py full`, `paramgen.py check --frozen`, `presetlint.py render --tier P`, hosts |
+| G6 | unattended part green 2026-11-03; hosts open | `validate_plugin.py --profile full --plugin build/Align_artefacts/Release/VST3/Align.vst3` -> Steinberg validator 47/47 (SDK 3.8.1), pluginval strictness 10 at 44.1-192 k: PASS. ASan + UBSan: `cmake --preset asan && cmake --build --preset asan`, then `PLUGINVAL=$PLUGINVAL_ASAN validate_plugin.py --profile full --sanitizer asan --plugin build-asan/.../Align.vst3` -> PASS (pluginval built with ASan, editor tests included); the suite on the ASan harness: fast 28/28, render 4/4. RTSan: `cmake --preset rtsan` (Homebrew LLVM) -> `PRODUCT_RTSAN_SELFTEST=1` aborts (live), the suite on the RTSan harness fast 28/28 and render 4/4 with no report (offline Track's inline estimate and every Detect included; `FAST_BUDGET_S=60` for the slower RelWithDebInfo build). CPU (rule 20): `perf.py run --harness build/.../AlignHarness --arch x86_64` -> nine presets at 48 k/64, three 60 s runs: p99.9 <= 0.3 %, recurring max <= 4.0 %, idle p99 0.2 % (budgets 25 / 50 / 2 %; on mains, M3 Pro; perf feeds an effect the default impulse, which Align's audio-thread cost barely depends on). `ctest --preset fast` 10/10 in 57.8 s (close to the 60 s budget; `release_bundles` is 13 s of it). `paramgen.py check --frozen`: n/a until the first release freezes the table (rule 19). `presetlint.py render --tier P`: replaced by `bank_check.py` (exception below). **Open, needs you:** Ableton Live 10.1 under Rosetta and Live on Windows, the 15-minute list per host (joint-plugin-workflow.md, Release gate), and one friend at 64 samples on the heaviest preset |
 | G7 | - | bank and table final, documents current, release gate green, then ship-bob |
 
 ## Listening debt
@@ -37,6 +37,7 @@ Newest first; one line each. Everything else keeps moving.
   (`build/Align_artefacts/Release/`), the editor is still the template stub.
 
 ## Open exceptions
+- 2026-11-03: `presetlint.py render --tier P` cannot judge an effect (it renders the harness's impulse: max_click 0 dB, loudness under the gate) and misreads choice parameters; `tools/measure/bank_check.py` runs the same checks with the drum-loop pair (CTest `bank_render`, green) until the kit is fixed (Waiting for Björn, bob-skills).
 - 2026-11-03: Track, 2 ms step, settles (within 5 %) at 3.5 s against G1's 3 s; `python3 tools/measure/g3_metrics.py` row "Track, 2 ms step". Owner decision pending (Waiting for Björn).
 
 ## Handoff
@@ -94,8 +95,15 @@ the same audio are right; recheck with the menu open in a host before calling it
 Working tree: clean after this checkpoint's commit. Tests: `ctest --preset fast` 9/9 in 43 s; `ctest --test-dir build -L render` 2/2 (suite_render with the golden, bank_render).
 Open questions for the owner: the "Waiting for Björn" lines above; two are decisions (Rotate's
 re-parameterisation, the asymmetric Delay clamp).
-Next: G6 - `validate_plugin.py quick` then `full` on the VST3 (pluginval, the Steinberg validator, the
-editor's tests), the ASan build, then Ableton Live 10.1 under Rosetta (the host checks only you can run).
+**G6 (Mac, later the same day).** Every release VST3 had an invalid signature (`strip` after JUCE's
+ad-hoc signing): both validators were killed on load (-9). The template had fixed it; its macOS block
+(per-arch LTO objects for the dSYMs, bundle copies before the seal, ad-hoc `codesign` last) and
+`check_bundles.py` (CTest `release_bundles`) are now here. `getProgramName` returns "Default" for the
+Steinberg validator's program scan.
+
+Next: the host checks (yours): install with `cp -R build/Align_artefacts/Release/VST3/Align.vst3
+~/Library/Audio/Plug-Ins/VST3/`, open Live 10.1 under Rosetta, route a reference into the sidechain,
+and run the 15-minute list. Then G7 (documents, ship-bob).
 
 ## Decisions
 - 2026-11-03: **Rotate and Below run on a 0.16 ms control grid** fixed to the stream, not once per
