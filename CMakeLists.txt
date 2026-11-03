@@ -311,9 +311,15 @@ if (Python3_FOUND)
         set_tests_properties(bounce_null PROPERTIES ENVIRONMENT "${HARNESS_ENV}" LABELS fast)
         add_test(NAME preset_bank
                  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/dsp-kit/presetlint.py" bank
-                         "${CMAKE_CURRENT_SOURCE_DIR}/presets.csv" --tier S --track ${PRODUCT_KIND} --harness "$<TARGET_FILE:AlignHarness>"
+                         "${CMAKE_CURRENT_SOURCE_DIR}/presets.csv" --tier P --track ${PRODUCT_KIND}
+                         --categories "Drums,Guitar and Bass,Keys,Vocals,Live" --harness "$<TARGET_FILE:AlignHarness>"
                  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
         set_tests_properties(preset_bank PROPERTIES ENVIRONMENT "${HARNESS_ENV}" LABELS "fast;lint")
+        # the bank measured as an effect (presetlint's render is instrument-shaped; tools/measure/bank_check.py)
+        add_test(NAME bank_render
+                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/measure/bank_check.py"
+                 WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+        set_tests_properties(bank_render PROPERTIES ENVIRONMENT "${HARNESS_ENV}" LABELS render)
     else()
         message(STATUS "python3 without numpy and scipy: the test suite is not registered")
     endif()

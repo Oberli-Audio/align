@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<OberliPreset name="Init" author="Oberli Audio" category="Bed"
+<OberliPreset name="Init" author="Oberli Audio" category="Drums"
               description="The parameter table's defaults."
               pluginVersion="0.1.0" created="2026-11-01" factory="true">
   <AlignState version="1" dspVersion="1">

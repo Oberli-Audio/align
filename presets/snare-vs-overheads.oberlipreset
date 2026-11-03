@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<OberliPreset name="Snare vs Overheads" author="Oberli Audio" category="Drums"
+              description="Snare top against the overheads; Rotate starts at the snare's body."
+              pluginVersion="0.1.0" created="2026-11-03" factory="true">
+  <AlignState version="1" dspVersion="1">
+    <PARAMETERS>
+      <PARAM id="delay" value="0"/>
+      <PARAM id="polarity" value="0"/>
+      <PARAM id="window" value="2"/>
+      <PARAM id="detect" value="0"/>
+      <PARAM id="rotate" value="0"/>
+      <PARAM id="below" value="200"/>
+      <PARAM id="mode" value="0"/>
+      <PARAM id="hold" value="0"/>
+      <PARAM id="listen" value="0"/>
+      <PARAM id="trim" value="0"/>
+      <PARAM id="bypass" value="0"/>
+    </PARAMETERS>
+    <Extra/>
+  </AlignState>
+</OberliPreset>

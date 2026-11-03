@@ -1,0 +1,23 @@
+{
+ "flags": {
+  "seed": 1,
+  "sample_rate": 48000,
+  "block": 512,
+  "seconds": 1.0,
+  "signal": "noise:pink:-20",
+  "sidechain_signal": "noise:pink:-18"
+ },
+ "params": {
+  "delay": 0.49420749999999997,
+  "polarity": 1.0,
+  "rotate": 0.5,
+  "below": 0.4370835261457413,
+  "trim": 0.4583333333333333,
+  "listen": 0.0
+ },
+ "arch": "x86_64",
+ "feedback": false,
+ "made": "2026-11-03",
+ "commit": "313ad4256521",
+ "why": "the whole path engaged (Window 20 ms, Delay -2.317 ms, Polarity, Rotate 90 deg at 110 Hz, Trim -2 dB) on seeded pink noise; F.8: same slice bit-identical, across slices peak < -100 dBFS (no long feedback: the all-passes' one-pole state only)"
+}

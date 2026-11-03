@@ -1,2 +1,10 @@
 slug,name,category,tags,edge,author,notes
-init,Init,Bed,,N,Oberli Audio,the parameter table's defaults (category: the brief's list; Bed until G0 decides)
+init,Init,Drums,,N,Oberli Audio,the parameter table's defaults
+kick-in-vs-overheads,Kick In vs Overheads,Drums,,Y,Oberli Audio,"brief edge preset; Below 80 Hz, the kick's body"
+snare-vs-overheads,Snare vs Overheads,Drums,,N,Oberli Audio,"Below 200 Hz, the snare's body"
+room-mics-wide-window,Room Mics Wide Window,Drums,,Y,Oberli Audio,"brief edge preset; Window 50 ms = 17 m at 343 m/s, reported as latency"
+bass-di-vs-amp,Bass DI vs Amp,Guitar and Bass,,N,Oberli Audio,"Below 80 Hz, the low end where DI and amp fight"
+guitar-di-vs-cab,Guitar DI vs Cab,Guitar and Bass,,N,Oberli Audio,Below 200 Hz
+piano-close-vs-room,Piano Close vs Room,Keys,,N,Oberli Audio,Below 150 Hz
+lead-vocal-vs-room,Lead Vocal vs Room,Vocals,,N,Oberli Audio,Mode Track: the only preset that tracks; Below 200 Hz
+live-stream-zero-latency,Live Stream Zero Latency,Live,,Y,Oberli Audio,brief edge preset; Window 0 (live): positive Delay only

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<OberliPreset name="Room Mics Wide Window" author="Oberli Audio" category="Drums"
+              description="Room pair against the close mics: a 50 ms window reaches mics up to 17 m away."
+              pluginVersion="0.1.0" created="2026-11-03" factory="true">
+  <AlignState version="1" dspVersion="1">
+    <PARAMETERS>
+      <PARAM id="delay" value="0"/>
+      <PARAM id="polarity" value="0"/>
+      <PARAM id="window" value="3"/>
+      <PARAM id="detect" value="0"/>
+      <PARAM id="rotate" value="0"/>
+      <PARAM id="below" value="120"/>
+      <PARAM id="mode" value="0"/>
+      <PARAM id="hold" value="0"/>
+      <PARAM id="listen" value="0"/>
+      <PARAM id="trim" value="0"/>
+      <PARAM id="bypass" value="0"/>
+    </PARAMETERS>
+    <Extra/>
+  </AlignState>
+</OberliPreset>

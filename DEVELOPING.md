@@ -51,6 +51,8 @@ python3 scripts/dsp-kit/presetlint.py bank presets.csv --tier P --harness $H
 python3 scripts/dsp-kit/presetlint.py render presets.csv --tier P --harness $H --md docs/presets.md
 python3 scripts/dsp-kit/perf.py run --harness $H --arch x86_64   # the CPU row of the release gate
 python3 tools/measure/g5_null.py --rates all                     # G5: the port against the prototype, six settings x six rates
+python3 tools/measure/g3_metrics.py                              # G3: the metric table, measured on the port
+python3 tools/measure/bank_check.py --md docs/presets.md         # G5: the bank as an effect (presetlint render is instrument-shaped)
 ```
 
 On a Mac whose CMake finds a Python without numpy and scipy (Homebrew's, for one), nothing but the

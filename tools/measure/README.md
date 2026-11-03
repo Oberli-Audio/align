@@ -7,3 +7,6 @@ designed", the translation battery. Each drives the harness through `dspkit.rend
 the command behind them. - `g5_null.py`: G5, the port against the numpy prototype on the seeded drum-loop pair, the six
   settings of the prototype's `reference_renders`, at every rate; F.8's -100 dBFS (float with IIR
   state), no alignment. The prototype gets the plain values the port read (`product.params_plain`).
+- `g3_metrics.py`: G3, the metric table (latency, nulls, delay flatness, Rotate, Detect accuracy and
+  time, comb, the Rotate suggestion, clicks, mono, silence, Track settling, CPU on the x86_64 slice).
+- `bank_check.py`: G5, the factory bank measured with an effect's input, and `docs/presets.md`.
