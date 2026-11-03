@@ -183,12 +183,38 @@ if (PRODUCT_RELEASE_SYMBOLS)
         target_link_options(Align PUBLIC $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF>)
     elseif (APPLE)
         target_compile_options(Align PUBLIC $<$<CONFIG:Release>:-g>)
+        set(PRODUCT_LTO_ARCHS ${CMAKE_OSX_ARCHITECTURES})
+        if (NOT PRODUCT_LTO_ARCHS)
+            set(PRODUCT_LTO_ARCHS ${CMAKE_HOST_SYSTEM_PROCESSOR})
+        endif()
         foreach(format VST3 Standalone)
             if (TARGET Align_${format})
+                # with LTO the linker deletes its object (/tmp/lto.o) before dsymutil reads it: keep it,
+                # one per architecture (a shared path keeps only the last slice's: an empty arm64 dSYM)
+                foreach(arch ${PRODUCT_LTO_ARCHS})
+                    target_link_options(Align_${format} PRIVATE
+                        "$<$<CONFIG:Release>:SHELL:-Xarch_${arch} -Wl,-object_path_lto,${CMAKE_CURRENT_BINARY_DIR}/lto-${format}-${arch}.o>")
+                endforeach()
+                # what CMake copies into the bundle (MACOSX_PACKAGE_LOCATION, the Standalone's nib) can
+                # land after POST_BUILD in a fresh build and break the seal: copy it here first
+                set(bundle_copies "")
+                get_target_property(bundle_sources Align_${format} SOURCES)
+                foreach(src IN LISTS bundle_sources)
+                    get_source_file_property(loc "${src}" MACOSX_PACKAGE_LOCATION)
+                    if (loc)
+                        list(APPEND bundle_copies
+                            COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_BUNDLE_CONTENT_DIR:Align_${format}>/${loc}"
+                            COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${src}" "$<TARGET_BUNDLE_CONTENT_DIR:Align_${format}>/${loc}/")
+                    endif()
+                endforeach()
+                # strip runs after JUCE's ad-hoc signature and breaks it; macOS will not load a
+                # broken signature (on Apple Silicon and under Rosetta), so sign ad hoc again last
                 add_custom_command(TARGET Align_${format} POST_BUILD
                     COMMAND dsymutil "$<TARGET_FILE:Align_${format}>" -o "$<TARGET_BUNDLE_DIR:Align_${format}>.dSYM"
                     COMMAND strip -x "$<TARGET_FILE:Align_${format}>"
-                    COMMENT "dSYM and strip: ${format}"
+                    ${bundle_copies}
+                    COMMAND codesign --force --sign - "$<TARGET_BUNDLE_DIR:Align_${format}>"
+                    COMMENT "dSYM, strip and ad-hoc signature: ${format}"
                     VERBATIM)
             endif()
         endforeach()
@@ -307,6 +333,13 @@ if (Python3_FOUND)
                          --harness "$<TARGET_FILE:AlignHarness>" --kind ${PRODUCT_KIND}
                  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
         set_tests_properties(parameter_table PROPERTIES LABELS "fast;lint")
+        if (APPLE AND PRODUCT_RELEASE_SYMBOLS)
+            # the release bundles load (a valid signature after strip) and symbolicate (both slices' dSYM)
+            add_test(NAME release_bundles
+                     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/tests/check_bundles.py" "${CMAKE_CURRENT_BINARY_DIR}"
+                     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+            set_tests_properties(release_bundles PROPERTIES LABELS fast)
+        endif()
         add_test(NAME bounce_null
                  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/tests/check_bounce.py"
                          --harness "$<TARGET_FILE:AlignHarness>" --kind ${PRODUCT_KIND}
