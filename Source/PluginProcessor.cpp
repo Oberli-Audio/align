@@ -1,11 +1,27 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "State.h"
+#include "oberli/RenderSafety.h"
+
+#include <ProductData.h>
 
 #include <cmath>
 
 namespace
 {
+/** A file compiled into the plugin (CMakeLists.txt: ProductData) by its name, or an empty block. */
+juce::MemoryBlock productFile (const juce::String& fileName)
+{
+    for (int i = 0; i < ProductData::namedResourceListSize; ++i)
+        if (fileName == ProductData::getNamedResourceOriginalFilename (ProductData::namedResourceList[i]))
+        {
+            int size = 0;
+            const auto* data = ProductData::getNamedResource (ProductData::namedResourceList[i], size);
+            return { data, (size_t) size };
+        }
+    return {};
+}
+
 std::atomic<float>* rawParam (juce::AudioProcessorValueTreeState& apvts, const char* id)
 {
     auto* p = apvts.getRawParameterValue (id);
@@ -71,6 +87,23 @@ AlignAudioProcessor::AlignAudioProcessor()
     // (sketch 3); the editor's button sets the same parameter.
     apvts.addParameterListener (Params::detect, this);
 
+    // The factory bank (presets.csv and presets/, compiled in) and the User folder, in the
+    // family's format (State.h); the Strip frame's header, drawer and menu work on it.
+    presets = std::make_unique<oberli::PresetLibrary> (
+        productFile ("presets.csv").toString(), productFile,
+        [this] (const juce::String& name, const juce::String& category, const juce::String& description, bool factory)
+        {
+            return align::State::presetXml (apvts, name, "", category, description, factory);
+        },
+        [this] (const juce::XmlElement& document)
+        {
+            auto* state = align::State::stateOf (document);
+            return state != nullptr && align::State::fromXml (*state, apvts);
+        });
+    // A new instance holds the parameter table's defaults: the Init preset, the bank's first.
+    if (! presets->factoryPresets().empty())
+        presets->restoreActive ("factory:" + presets->factoryPresets().front().slug);
+
     worker = std::make_unique<Worker> (*this);
     worker->startThread (juce::Thread::Priority::low);
 }
@@ -96,20 +129,16 @@ void AlignAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     frameRef.assign ((size_t) frame, 0.0f);
     frameIn.assign ((size_t) frame, 0.0f);
 
-    juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) juce::jmax (1, samplesPerBlock), 1 };
-    for (auto* f : { &rmsFilterL, &rmsFilterR })
-    {
-        f->prepare (spec);
-        f->setLevelCalculationType (juce::dsp::BallisticsFilterLevelCalculationType::RMS);
-        f->setAttackTime (20.0f);
-        f->setReleaseTime (20.0f);
-    }
-    // the correlation meter's 400 ms window, as a one-pole on the three running sums
-    corrCoefficient = std::exp (-1.0 / (0.4 * sampleRate));
-    corrXY = corrXX = corrYY = 0.0;
-    rmsL.store (0.0f);
-    rmsR.store (0.0f);
-    correlationValue.store (0.0f);
+    // the editor's taps: the correlation meter's 400 ms window (sketch 4.5), the Sum well at 1/6
+    // octave, and the reference delayed by the longest latency a Window can report
+    peaks.reset();
+    correlationTap.prepare (sampleRate, 0.4);
+    beforeAnalyser.prepare (sampleRate, oberli::BandLayout::Resolution::sixth);
+    afterAnalyser.prepare (sampleRate, oberli::BandLayout::Resolution::sixth);
+    displayScratch.setSize (4, juce::jmax (1, samplesPerBlock), false, true, false);
+    const auto longest = (double) align::dsp::AlignEngine::kWindowMs[align::dsp::AlignEngine::kNumWindows - 1];
+    referenceDelay.assign ((size_t) std::ceil (longest * 1.0e-3 * sampleRate) + 2, 0.0f);
+    referenceWrite = 0;
     trackOffset.store (0.0f);
     trackIntervalSamples = juce::jmax ((juce::int64) 1, (juce::int64) std::llround (kTrackIntervalMs * 1.0e-3 * sampleRate));
     samplesToNextTrack = 0;
@@ -185,7 +214,12 @@ void AlignAudioProcessor::render (juce::AudioBuffer<float>& buffer, juce::MidiBu
     auto mainBus = getBusBuffer (buffer, true, 0);
     auto outBus = getBusBuffer (buffer, false, 0);
     for (int ch = mainBus.getNumChannels(); ch < outBus.getNumChannels(); ++ch)
-        outBus.clear (ch, 0, numSamples);
+    {
+        if (mainBus.getNumChannels() > 0)
+            outBus.copyFrom (ch, 0, outBus, 0, 0, numSamples);   // a mono input reaches both sides
+        else
+            outBus.clear (ch, 0, numSamples);
+    }
     if (numSamples == 0)   // a zero-length block is legal (harness contract, D.5.1)
         return;
 
@@ -199,7 +233,11 @@ void AlignAudioProcessor::render (juce::AudioBuffer<float>& buffer, juce::MidiBu
         setLatencySamples (reportedLatency);
     }
 
-    auto sideBus = getBusCount (true) > 1 ? getBusBuffer (buffer, true, 1) : juce::AudioBuffer<float>();
+    // the sidechain view only when the buffer really carries its channels (a host or a tool that
+    // hands over fewer must not make us read past the channel array)
+    const bool sideFits = getBusCount (true) > 1 && getChannelCountOfBus (true, 1) > 0
+                       && buffer.getNumChannels() >= getChannelIndexInProcessBlockBuffer (true, 1, 0) + getChannelCountOfBus (true, 1);
+    auto sideBus = sideFits ? getBusBuffer (buffer, true, 1) : juce::AudioBuffer<float>();
     const bool haveSide = sideBus.getNumChannels() > 0 && sideBus.getNumSamples() >= numSamples;
     const float* sidePointers[2] { nullptr, nullptr };
     if (haveSide)
@@ -225,28 +263,57 @@ void AlignAudioProcessor::render (juce::AudioBuffer<float>& buffer, juce::MidiBu
         sidechainActive.store (false, std::memory_order_relaxed);
     }
 
+    // the Sum well's "before" needs the input as it was; the displays run in real time only, while
+    // an editor watches, and skip a block larger than announced rather than allocate (rule 1)
+    const auto mode = oberli::render::modeFor (*this);
+    const bool feed = mode.feedDisplay && numSamples <= displayScratch.getNumSamples();
+    const bool watch = feed && displaysActive.load (std::memory_order_relaxed);
+    if (feed)
+    {
+        auto* inMono = displayScratch.getWritePointer (0);
+        for (int i = 0; i < numSamples; ++i)
+            inMono[i] = channels > 1 ? 0.5f * (mainPointers[0][i] + mainPointers[1][i]) : mainPointers[0][i];
+    }
+
     engine.process (mainPointers, haveSide ? sidePointers : nullptr, channels, numSamples, bypassed);
     scheduleTrack (numSamples);
 
-    // meters, taken after everything so they tell the truth (F.9, stage order)
-    float lastL = 0.0f, lastR = 0.0f;
-    for (int i = 0; i < numSamples; ++i)
+    // meters and displays, taken after everything so they tell the truth (F.9, stage order)
+    if (feed)
     {
-        const float l = mainPointers[0][i];
-        const float r = channels > 1 ? mainPointers[1][i] : l;
-        lastL = rmsFilterL.processSample (0, l);
-        lastR = rmsFilterR.processSample (0, r);
-        const double x = 0.5 * ((double) l + (double) r);
-        const double y = haveSide ? 0.5 * ((double) sidePointers[0][i] + (double) sidePointers[1][i]) : 0.0;
-        corrXY = x * y + corrCoefficient * (corrXY - x * y);
-        corrXX = x * x + corrCoefficient * (corrXX - x * x);
-        corrYY = y * y + corrCoefficient * (corrYY - y * y);
+        peaks.push (outBus, 0, numSamples);
+        auto* inMono = displayScratch.getWritePointer (0);    // the input; then the late reference
+        auto* before = displayScratch.getWritePointer (1);
+        auto* after = displayScratch.getWritePointer (2);
+        auto* outMono = displayScratch.getWritePointer (3);
+        const int size = (int) referenceDelay.size();
+        const int lag = juce::jlimit (0, size - 1, reportedLatency);
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float ref = haveSide ? 0.5f * (sidePointers[0][i] + sidePointers[1][i]) : 0.0f;
+            const float out = channels > 1 ? 0.5f * (mainPointers[0][i] + mainPointers[1][i]) : mainPointers[0][i];
+            referenceWrite = referenceWrite + 1 >= size ? 0 : referenceWrite + 1;
+            referenceDelay[(size_t) referenceWrite] = ref;
+            int at = referenceWrite - lag;
+            if (at < 0)
+                at += size;
+            // the reference as the host plays it beside this track: delayed by the reported latency
+            const float refLate = referenceDelay[(size_t) at];
+            before[i] = 0.5f * (inMono[i] + ref);
+            after[i] = 0.5f * (out + refLate);
+            outMono[i] = out;
+            inMono[i] = refLate;
+        }
+        float* pair[2] { outMono, inMono };
+        correlationTap.push (juce::AudioBuffer<float> (pair, 2, numSamples), 0, numSamples);
+        if (watch)
+        {
+            float* b[1] { before };
+            float* a[1] { after };
+            beforeAnalyser.push (juce::AudioBuffer<float> (b, 1, numSamples), 0, numSamples);
+            afterAnalyser.push (juce::AudioBuffer<float> (a, 1, numSamples), 0, numSamples);
+        }
     }
-    rmsL.store (lastL, std::memory_order_relaxed);
-    rmsR.store (channels > 1 ? lastR : lastL, std::memory_order_relaxed);
-    const double den = std::sqrt (corrXX * corrYY);
-    correlationValue.store (den > 1.0e-20 ? (float) juce::jlimit (-1.0, 1.0, corrXY / den) : 0.0f,
-                            std::memory_order_relaxed);
 }
 
 //==============================================================================
@@ -432,7 +499,10 @@ juce::AudioProcessorEditor* AlignAudioProcessor::createEditor()
 
 void AlignAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    copyXmlToBinary (*align::State::toXml (apvts), destData);
+    auto xml = align::State::toXml (apvts);
+    if (auto* extra = xml->getChildByName ("Extra"); extra != nullptr && presets->activeId().isNotEmpty())
+        extra->setAttribute ("preset", presets->activeId());   // which preset the sound came from, for the header
+    copyXmlToBinary (*xml, destData);
 }
 
 void AlignAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
@@ -450,7 +520,11 @@ bool AlignAudioProcessor::loadState (const void* data, int sizeInBytes)
     if (xml == nullptr)
         return false;
     auto* state = align::State::stateOf (*xml);
-    return state != nullptr && align::State::fromXml (*state, apvts);
+    if (state == nullptr || ! align::State::fromXml (*state, apvts))
+        return false;
+    const auto* extra = state->getChildByName ("Extra");
+    presets->restoreActive (extra != nullptr ? extra->getStringAttribute ("preset") : juce::String());
+    return true;
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

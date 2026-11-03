@@ -1,8 +1,10 @@
 # Status - Align 0.1.0 (2026-11-03)
-Tier P, track E (effect): G3 18/19 with one open exception (Track settling), G5 closed (null, bank, golden); next the editor (plugin-ui-bob), then G6. Recipe D.8.1.
+Tier P, track E (effect): G3 18/19 with one open exception (Track settling), G5 closed (null, bank, golden), the editor built on the Strip frame (plugin-ui-bob G2-G3); next G6 (validators, hosts). Recipe D.8.1.
 
 ## Waiting for Björn
 Newest first; one line each. Everything else keeps moving.
+- 2026-11-03: **Look at the editor** (`docs/ui/panel@1x.png`, `no-sidechain@1x.png`, `drawer@1x.png`; or the Standalone/VST3). Built from the sketch on the Strip frame, Group left out (Tier F). One proposal needs you: the preset drawer cuts the category "Guitar and Bass" to "Guitar and Ba" (the shared drawer's column has no ellipsis); "Guitar, Bass" fits. The category list is the brief's, so it is your amendment.
+- 2026-11-03: **For bob-skills (three upstream items).** (1) paramgen prints negative values with a hyphen-minus (`juce::String (v, n)`), the brand asks for a real minus: Delay shows "-2.31 ms" beside the readout's "−2.31 ms". (2) The shared PresetDrawer's category column truncates without an ellipsis. (3) The snapshot tool has no product hook: Align added a marked block (`--pair`, `--detect`) to `tools/gui_snapshot/Main.cpp`, which the next `refresh_oberli.py` will overwrite.
 - 2026-11-03: **Track's speed, decide.** G1 says Track settles within 3 s of a 2 ms step; with the sketch's tau 1 s and a 1 s analysis frame it is 92 % there at 3 s and within 5 % at 3.5 s (`g3_metrics.py`). Keep tau 1 s and amend the criterion to 4 s (calmer), or shorten tau to about 0.7 s (meets 3 s, follows a moving player faster and wobbles more). Open exception below until then.
 - 2026-11-03: **The factory bank is a proposal, listen to it.** Eight source pairs plus Init (`docs/presets.md`): Kick In vs Overheads, Snare vs Overheads, Room Mics Wide Window (50 ms), Bass DI vs Amp, Guitar DI vs Cab, Piano Close vs Room, Lead Vocal vs Room (the one Track preset), Live Stream Zero Latency (Window 0). Delay, Polarity and Rotate stay 0 in every preset: Detect measures them per session. Init is filed under Drums because the brief's category list has no neutral one. Names, Windows and Below starting points are yours to change.
 - 2026-11-03: **Two fixes for `presetlint.py` in bob-skills** (sound-design-bob; never edited here). (1) `check_init` compares a choice parameter's normalised echo with its plain index (`want = p["fdefault"]` for choices), so Align's Init reads "window is 0.5, table default 2.0"; `PG.to_normalised` is already right for choices. (2) `render` passes `--notes/--gate`, which an effect harness ignores (contract: instruments only), so every effect preset is rendered from an impulse: max_click 0 dB and loudness under the gate. Proposal: for `--track effect`, a `--signal` (or `--in`/`--sidechain` files) and clicks judged against the input's own. Until then `tools/measure/bank_check.py` does the effect's version (CTest `bank_render`).
@@ -42,7 +44,7 @@ Task: build Align to Tier P from G1. Plan: 1. [x] G1 families and departures 2. 
 prototype, 16 checks, renders 3. [x] G4 port, build green 4. [x] harness sidechain bus,
 `--detect-at`, product metrics 5. [x] `tools/tests/test_plugin.py` 6. [x] G3 metric table
 (`tools/measure/g3_metrics.py`; Track's exception open) 7. [x] G5 null vs the prototype 8. [x] presets (8 + Init,
-the brief's categories), the bank's loudness, one golden 9. [ ] editor on the Strip frame (plugin-ui-bob) 10. [ ]
+the brief's categories), the bank's loudness, one golden 9. [x] editor on the Strip frame (plugin-ui-bob; open points in Waiting) 10. [ ]
 G6 validate 11. [ ] G7 documents.
 
 **This session (Mac, 2026-11-03).** `toolchain.py check` OK. `Source/oberli/` refreshed from
@@ -69,16 +71,31 @@ FMA, so Delay 1.75 ms arrives as 1.7499924 ms (G5 now feeds the prototype the pl
 read). The prototype's delay crossfade also started one step late and ended one short (a 1/L jump,
 -64 dBFS against the port); it now ramps as `SincDelay.h` does.
 
-**The editor.** The template's editor is now the Strip frame (`oberli::ui::StripEditor`); Align's is
-still the slider stub. Wiring it is plugin-ui-bob's work (G2 of the UI gates): the correlation well
-needs the signed GCC curve published by the detector, which `Detector::Result` does not carry yet
-(it has `peak` as a magnitude and `inverted` for the sign).
+**The editor** (plugin-ui-bob, Tier P). `Source/PluginEditor.*` derives from the Strip frame;
+`Source/AlignDisplays.*` are the two wells. The detector publishes its signed GCC curve
+(`Detector::Result::curve`, 256 peak-preserving points, the same function the peak comes from:
+rule 9); the processor owns the preset library, a PeakTap, a CorrelationTap (output against the
+reference delayed by the latency, 400 ms) and two 1/6-octave Analysers for the Sum well, fed only
+in real time and only while an editor is open (RenderSafety). Also in this step: `State.h` from the
+template (FMA-safe saving), a mono input now reaches both outputs (the right one was silent), the
+sidechain view is built only when the buffer carries its channels, Delay's precision 4 (0.01 ms) and
+Rotate's `format_kind custom` with `Source/Display.cpp` ("90°"). Evidence: `AlignGuiSnapshot --pair
+--detect --scale=1|1.5|2` -> `docs/ui/panel@*.png`; `snapshot_contrast.py --metrics --theme bone`
+-> 0 outside the limits (glow 1.39 %, 6 colours, nothing above #F6); text contrast on the 200 %
+render: readout 14.1:1, suggestion 8.2:1, legend 5.9:1, the wells' axis labels 5.5:1 (all >= 4.5).
+Read by eye: panel at 100/150/200 %, no-sidechain (both wells say what is missing), drawer (the
+category cut, above), about (the "what" line shortened to fit), menu, the Delay drag readout (its
+bubble covers the ALIGN title while dragging: the family's floating readout, Schwere 1). Open,
+Schwere 1-2: the sketch's "Listening: Ref" header pill (the shared header has no status slot), the
+category cut, the hyphen-minus. Unexplained, snapshot only: with the menu open the preset pill lacks
+its edited mark and the Sum well's "before" curve shows no comb, while panel and drawer renders of
+the same audio are right; recheck with the menu open in a host before calling it a defect.
 
 Working tree: clean after this checkpoint's commit. Tests: `ctest --preset fast` 9/9 in 43 s; `ctest --test-dir build -L render` 2/2 (suite_render with the golden, bank_render).
 Open questions for the owner: the "Waiting for Björn" lines above; two are decisions (Rotate's
 re-parameterisation, the asymmetric Delay clamp).
-Next: the editor on the Strip frame (plugin-ui-bob: its gates, the parameter table's naming columns, the
-correlation well and Sum well, the readout, Apply for Rotate); the detector has to publish its signed curve first.
+Next: G6 - `validate_plugin.py quick` then `full` on the VST3 (pluginval, the Steinberg validator, the
+editor's tests), the ASan build, then Ableton Live 10.1 under Rosetta (the host checks only you can run).
 
 ## Decisions
 - 2026-11-03: **Rotate and Below run on a 0.16 ms control grid** fixed to the stream, not once per

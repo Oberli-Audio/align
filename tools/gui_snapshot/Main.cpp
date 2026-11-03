@@ -42,7 +42,11 @@ const char* const kUsage =
     "  --param=<id>=<0..1>       a normalised parameter value, repeatable\n"
     "  --preset=<n>              load factory preset n (0 = Init) first\n"
     "  --drag=<id>               show that knob's drag readout\n"
-    "  --seconds=<s>             audio rendered and frames stepped before the snapshot (default 1.5)\n";
+    "  --seconds=<s>             audio rendered and frames stepped before the snapshot (default 1.5)\n"
+    // Align: a product block (marked "Align:" below). refresh_oberli.py copies this file from the
+    // template and drops it; docs/status.md asks for a product hook upstream.
+    "  --pair                    Align: a reference on the sidechain, the track 2.317 ms later and flipped\n"
+    "  --detect                  Align: press Detect after the first second and apply the result\n";
 } // namespace
 
 int main (int argc, char* argv[])
@@ -59,7 +63,7 @@ int main (int argc, char* argv[])
         const auto key = a.substring (2).upToFirstOccurrenceOf ("=", false, false);
         const auto value = a.fromFirstOccurrenceOf ("=", false, false);
         if (key == "param") params.add (value);
-        else if (juce::StringArray { "out", "scale", "state", "preset", "drag", "seconds" }.contains (key)) args.set (key, value);
+        else if (juce::StringArray { "out", "scale", "state", "preset", "drag", "seconds", "pair", "detect" }.contains (key)) args.set (key, value.isEmpty() ? juce::String ("1") : value);
         else refuse ("unknown flag --" + key + " (--help)");
     }
     if (args["out"].isEmpty()) refuse ("--out is required (--help)");
@@ -88,6 +92,12 @@ int main (int argc, char* argv[])
    #endif
     layout.outputBuses.add (juce::AudioChannelSet::stereo());
     processor.setBusesLayout (layout);
+    const bool pair = args["pair"].isNotEmpty();                       // Align: the sidechain bus
+    if (pair)
+    {
+        layout.inputBuses.add (juce::AudioChannelSet::stereo());
+        if (! processor.setBusesLayout (layout)) refuse ("--pair: the processor refuses a stereo sidechain");
+    }
 
     const double rate = 48000.0;
     const int block = 512;
@@ -109,7 +119,10 @@ int main (int argc, char* argv[])
         strip->getPresets().loadFactory (args["preset"].getIntValue());
 
     // Audio and frames together: pink-ish noise at -18 dBFS into an effect, a chord into an instrument.
-    juce::AudioBuffer<float> buffer (2, block);
+    juce::AudioBuffer<float> buffer (pair ? 4 : 2, block);   // Align: 4 with the sidechain
+    std::vector<float> history (4096, 0.0f);                    // Align: the reference's past, for the late track
+    size_t historyAt = 0;
+    const size_t lateBy = (size_t) std::lround (2.317e-3 * rate);
     juce::MidiBuffer midi;
     std::mt19937 rng (1);
     std::normal_distribution<float> noise (0.0f, 0.125f);
@@ -124,6 +137,19 @@ int main (int argc, char* argv[])
             for (int n : { 48, 55, 60, 64 })
                 midi.addEvent (juce::MidiMessage::noteOn (1, n, (juce::uint8) 100), 0);
        #else
+        if (pair)   // Align: reference on channels 2-3, the track 2.317 ms later and flipped on 0-1
+            for (int i = 0; i < block; ++i)
+            {
+                const float ref = noise (rng);
+                history[historyAt] = ref;
+                const float late = history[(historyAt + history.size() - lateBy) % history.size()];
+                historyAt = (historyAt + 1) % history.size();
+                buffer.setSample (2, i, ref);
+                buffer.setSample (3, i, ref);
+                buffer.setSample (0, i, -0.8f * late);
+                buffer.setSample (1, i, -0.8f * late);
+            }
+        else
         for (int ch = 0; ch < 2; ++ch)
             for (int i = 0; i < block; ++i)
                 buffer.setSample (ch, i, noise (rng));
@@ -136,6 +162,17 @@ int main (int argc, char* argv[])
     const auto blocks = (int) std::ceil (seconds * rate / block);
     for (int b = 0; b < blocks; ++b)
         audioBlock (b);
+
+    if (args["detect"].isNotEmpty())   // Align: press Detect as the editor does, wait for the worker, apply
+    {
+        const int before = processor.detectSequence();
+        if (auto* detect = processor.parameters().getParameter ("detect"))
+            detect->setValueNotifyingHost (1.0f);
+        if (! processor.waitForDetect (before, 3000)) refuse ("--detect: no result from the worker");
+        processor.applyPendingDetect();
+        for (int b = 0; b < blocks; ++b)
+            audioBlock (blocks + b);
+    }
 
     if (strip != nullptr)
     {

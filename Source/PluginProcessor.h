@@ -10,6 +10,9 @@
 #include "Params.h"
 #include "dsp/AlignEngine.h"
 #include "dsp/Detector.h"
+#include "oberli/Analysis.h"
+#include "oberli/MeterTaps.h"
+#include "oberli/PresetLibrary.h"
 
 /*  Align - the processor.
 
@@ -86,15 +89,28 @@ public:
     /** The parameter tree; the editor attaches to it, the harness sets values through it. */
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
 
-    /** What the editor may read from the audio thread: the 20 ms RMS per channel (D.6.2). */
-    float outputLevel (int channel) const noexcept
-    {
-        return channel == 0 ? rmsL.load (std::memory_order_relaxed) : rmsR.load (std::memory_order_relaxed);
-    }
+    /** The factory bank and the User folder (Source/oberli/PresetLibrary.h); the Strip frame's
+        header, drawer and menu work on it. */
+    oberli::PresetLibrary& presetLibrary() noexcept { return *presets; }
+    oberli::PresetHost& presetHost() noexcept { return *presets; }
+
+    // ---- the editor's taps (Source/oberli/MeterTaps.h, Analysis.h); fed in real time while an
+    // editor is open, never offline (RenderSafety.h), so a bounce does no display work ------------
+    /** The output's sample peak and clip flag. */
+    oberli::PeakTap& outputPeaks() noexcept { return peaks; }
+    /** Reference against output: channel 0 the output's mono sum, channel 1 the reference's. */
+    oberli::CorrelationTap& referenceCorrelation() noexcept { return correlationTap; }
+    /** The Sum well (sketch 4.5): this track plus the reference as they meet in the mix, before
+        Align (the input) and after it (the output, against the reference delayed by the reported
+        latency, which is what the host's compensation plays). */
+    oberli::Analyser& sumBefore() noexcept { return beforeAnalyser; }
+    oberli::Analyser& sumAfter() noexcept { return afterAnalyser; }
+    /** The editor says whether anything is watching; the audio thread reads it once per block. */
+    void setDisplaysActive (bool active) noexcept { displaysActive.store (active, std::memory_order_relaxed); }
 
     /** Pearson correlation between the reference and the output over the last 400 ms, -1 to +1:
         the number most engineers know from InPhase (sketch 4.5). */
-    float correlation() const noexcept { return correlationValue.load (std::memory_order_relaxed); }
+    float correlation() const noexcept { return correlationTap.get(); }
 
     /** True while a stereo sidechain is connected and carrying something. */
     bool sidechainConnected() const noexcept { return sidechainActive.load (std::memory_order_relaxed); }
@@ -144,6 +160,8 @@ private:
     void handleAsyncUpdate() override;
     void runDetectOnce (bool tracking);
     void scheduleTrack (int numSamples) noexcept;
+    void feedDisplays (const float* const* in, int inChannels, const float* const* out, int outChannels,
+                       const float* const* side, int numSamples) noexcept;
     bool tryClaimAnalysis() noexcept
     {
         bool expected = false;
@@ -181,15 +199,19 @@ private:
     std::atomic<bool> pendingApply { false };
     std::atomic<int>  resultSequence { 0 };
     std::atomic<float> trackOffset { 0.0f };
-    std::atomic<float> rmsL { 0.0f }, rmsR { 0.0f };
-    std::atomic<float> correlationValue { 0.0f };
     std::atomic<bool> sidechainActive { false };
 
     mutable juce::CriticalSection resultLock;   // worker <-> message thread only, never the audio thread
     align::dsp::Detector::Result publishedResult;
 
-    juce::dsp::BallisticsFilter<float> rmsFilterL, rmsFilterR;
-    double corrXY = 0.0, corrXX = 0.0, corrYY = 0.0, corrCoefficient = 0.0;
+    std::unique_ptr<oberli::PresetLibrary> presets;
+    oberli::PeakTap peaks;
+    oberli::CorrelationTap correlationTap;
+    oberli::Analyser beforeAnalyser, afterAnalyser;
+    std::atomic<bool> displaysActive { false };
+    juce::AudioBuffer<float> displayScratch;        // 0: input mono, 1: before, 2: after, 3: output mono
+    std::vector<float> referenceDelay;              // the reference's mono sum, delayed by the latency
+    int referenceWrite = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AlignAudioProcessor)
 };

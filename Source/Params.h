@@ -19,6 +19,8 @@ inline constexpr const char* listen = "listen";
 inline constexpr const char* trim = "trim";
 inline constexpr const char* bypass = "bypass";
 
+// format_kind custom: the project defines these two (one translation unit), e.g. a root-time readout for ATTACK
+namespace Display { juce::String custom (const char* id, float raw); float parse (const char* id, const juce::String& text); }
 inline juce::String fmt (double v, int decimals) { return decimals <= 0 ? juce::String (juce::roundToInt (v)) : juce::String (v, decimals); }   // decimals 0 = rounded integer, as paramgen's Python prints it
 
 inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
@@ -28,7 +30,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { delay, 1 }, "Delay",
         NormalisableRange<float> (-200.0f, 200.0f, 0.0f, 1.000000f), 0.0f,
         AudioParameterFloatAttributes().withLabel ("ms")
-            .withStringFromValueFunction ([] (float v, int) { double s = v / 1000.0; return std::abs (s) < 1.0 ? juce::String (v > 0 ? "+" : "") + fmt (s * 1000.0, 0) + " ms" : juce::String (v > 0 ? "+" : "") + fmt (s, 2) + " s"; })
+            .withStringFromValueFunction ([] (float v, int) { double s = v / 1000.0; return std::abs (s) < 1.0 ? juce::String (v > 0 ? "+" : "") + fmt (s * 1000.0, 2) + " ms" : juce::String (v > 0 ? "+" : "") + fmt (s, 4) + " s"; })
             .withValueFromStringFunction ([] (const juce::String& s) { juce::String t = s.trim().replace (",", ".").toLowerCase(); double x = t.retainCharacters ("0123456789.+-").getDoubleValue(); if (t.endsWith ("ms")) return (float) (x); if (t.endsWith ("min") || t.endsWith ("m")) return (float) (x * 1000.0 * 60.0); return (float) (x * 1000.0); })));
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { polarity, 1 }, "Polarity", false,
         AudioParameterBoolAttributes().withStringFromValueFunction ([] (bool b, int) { return juce::String (b ? "On" : "Off"); })));
@@ -39,8 +41,8 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { rotate, 1 }, "Rotate",
         NormalisableRange<float> (0.0f, 180.0f, 0.0f, 1.000000f), 0.0f,
         AudioParameterFloatAttributes()
-            .withStringFromValueFunction ([] (float v, int) { return fmt (v, 0) + ""; })
-            .withValueFromStringFunction ([] (const juce::String& s) { juce::String t = s.trim().replace (",", ".").toLowerCase(); double x = t.retainCharacters ("0123456789.+-").getDoubleValue(); return (float) x; })));
+            .withStringFromValueFunction ([] (float v, int) { return Display::custom ("rotate", v); })
+            .withValueFromStringFunction ([] (const juce::String& s) { return Display::parse ("rotate", s); })));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { below, 1 }, "Below",
         NormalisableRange<float> (30.0f, 1000.0f, 0.0f, 0.331680f), 120.0f,
         AudioParameterFloatAttributes().withLabel ("Hz")
@@ -82,7 +84,7 @@ inline constexpr Smoothing smoothing[] = {
 // calls slider.setTooltip (tooltipFor (id)) and setHelpText (tooltipFor (id)); never types text.
 struct Help { const char* id; const char* tooltip; const char* meaning; };
 inline constexpr Help help[] = {
-    { delay, "Moves this track against the reference; minus is earlier. Range -200 ms to +200 ms, default 0 ms.", "" },
+    { delay, "Moves this track against the reference; minus is earlier. Range -200.00 ms to +200.00 ms, default 0.00 ms.", "" },
     { polarity, "Flips the signal when the two mics face each other. Default Off.", "" },
     { window, "Search range and reported latency; 0 is zero latency. Options 0 (live), 5 ms, 20 ms, 50 ms, 200 ms; default 20 ms.", "" },
     { detect, "Measures delay and polarity against the reference and applies them. Default Off.", "" },

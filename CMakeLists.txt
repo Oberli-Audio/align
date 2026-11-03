@@ -117,6 +117,9 @@ set(PRODUCT_SOURCES
     Source/PluginProcessor.h
     Source/PluginEditor.cpp
     Source/PluginEditor.h
+    Source/AlignDisplays.cpp
+    Source/AlignDisplays.h
+    Source/Display.cpp
     Source/Params.h
     Source/State.h
     Source/dsp/AlignEngine.h

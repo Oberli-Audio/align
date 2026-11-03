@@ -2,6 +2,7 @@
 
 #include <juce_dsp/juce_dsp.h>
 
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -50,6 +51,7 @@ public:
     static constexpr float  kRotateOtherMicMinGain = 0.15f;
     static constexpr float  kSpeedOfSound = 343.0f;   // m/s at 20 C, as the readout's distance uses
     static constexpr int    kRotateGridBelowCount = 5;
+    static constexpr int    kCurvePoints = 256;    // the correlation well's resolution (defining feature 1)
     static constexpr float  kRotateGridBelowHz[kRotateGridBelowCount] = { 60.0f, 80.0f, 110.0f, 150.0f, 200.0f };
 
     enum class Reason { ok, notEnoughAudio, referenceSilent, emptyBand, emptyWindow };
@@ -76,6 +78,13 @@ public:
         float      peak = 0.0f;
         float      secondPeak = 0.0f;
         Suggestion suggestion {};
+
+        /** The GCC-PHAT over the search window for the editor's correlation well, signed (an
+            inverted pair is a downward peak) and peak-preserving: each point is the sample of
+            largest magnitude in its share of the lags, so the found peak is never smoothed away.
+            curve[0] is at curveLoMs, curve[kCurvePoints - 1] at curveHiMs. */
+        std::array<float, kCurvePoints> curve {};
+        float      curveLoMs = 0.0f, curveHiMs = 0.0f;
     };
 
     /** `maxFrame` is the longest frame detect() will ever be given, in samples at `analysisRate`. */
@@ -185,6 +194,20 @@ public:
                 index += fftSize;
             return cross[(size_t) index];
         };
+
+        // the well's picture of the same function the peak is taken from (rule 9)
+        out.curveLoMs = (float) ((double) lo / rate * 1.0e3);
+        out.curveHiMs = (float) ((double) hi / rate * 1.0e3);
+        for (int c = 0; c < kCurvePoints; ++c)
+        {
+            const int a = lo + (int) ((juce::int64) (hi - lo) * c / kCurvePoints);
+            const int b = juce::jmax (a, lo + (int) ((juce::int64) (hi - lo) * (c + 1) / kCurvePoints) - 1);
+            float v = 0.0f;
+            for (int lag = a; lag <= b; ++lag)
+                if (std::abs (at (lag)) > std::abs (v))
+                    v = at (lag);
+            out.curve[(size_t) c] = v;
+        }
 
         int bestLag = lo + 1;
         float bestAbs = -1.0f;
