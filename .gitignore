@@ -75,3 +75,6 @@ __pycache__/
 *.aiff
 *.mp3
 *.m4a
+
+# Claude Code local settings (may hold tokens or keys)
+.claude/settings.local.json
